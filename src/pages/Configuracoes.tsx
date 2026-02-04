@@ -1,22 +1,34 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import { useApiConfig, useDatabase, useOnlineStatus } from '@/hooks/useDatabase';
-import { Wifi, WifiOff, RefreshCw, CheckCircle2, AlertCircle, Loader2, Database } from 'lucide-react';
+import { useApiConfig, useDatabase, useOnlineStatus, useSystemConfig } from '@/hooks/useDatabase';
+import { Wifi, WifiOff, RefreshCw, CheckCircle2, AlertCircle, Loader2, Database, Settings } from 'lucide-react';
 import { motion } from 'framer-motion';
 import * as db from '@/lib/database';
 import { syncInscritos, testApiConnection } from '@/lib/apiSync';
+import { toast } from 'sonner';
 
 const Configuracoes = () => {
   const { config, saveConfig, loading: configLoading } = useApiConfig();
+  const { config: systemConfig, saveConfig: saveSystemConfig, loading: systemLoading } = useSystemConfig();
+
   const { inscritosCount, reinitialize } = useDatabase();
   const isOnline = useOnlineStatus();
   
   const [syncing, setSyncing] = useState(false);
+  const [minEquipes, setMinEquipes] = useState('');
   const [testing, setTesting] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [syncMessage, setSyncMessage] = useState('');
+
+  useEffect(() => {
+    if (systemConfig) {
+      setMinEquipes(String(systemConfig.minEquipes));
+    }
+  }, [systemConfig]);
 
   const handleTestConnection = async () => {
     setTesting(true);
@@ -68,6 +80,17 @@ const Configuracoes = () => {
     }
   };
 
+
+  const handleSaveSystemConfig = async () => {
+    const value = Number(minEquipes);
+    if (!Number.isFinite(value) || value < 1) {
+      toast.error('Informe um numero minimo valido');
+      return;
+    }
+    await saveSystemConfig({ minEquipes: Math.floor(value) });
+    toast.success('Configuracao atualizada com sucesso');
+  };
+
   const handleResetData = async () => {
     if (!confirm('⚠️ ATENÇÃO: Isso irá apagar TODOS os dados do sistema (inscritos, equipes, sorteios, gincanas, pontuações). Esta ação NÃO pode ser desfeita. Deseja continuar?')) {
       return;
@@ -101,7 +124,7 @@ const Configuracoes = () => {
     }
   };
 
-  if (configLoading) {
+  if (configLoading || systemLoading) {
     return (
       <MainLayout>
         <div className="flex h-[80vh] items-center justify-center">
@@ -194,6 +217,44 @@ const Configuracoes = () => {
                 ) : (
                   'Testar Conexão'
                 )}
+              </Button>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+
+        {/* System Rules */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 }}
+        >
+          <Card className="glass">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Settings className="h-5 w-5" />
+                Regras do Sistema
+              </CardTitle>
+              <CardDescription>
+                Defina o numero minimo de equipes para liberar pontuacao
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="min-equipes">Numero minimo de equipes</Label>
+                <Input
+                  id="min-equipes"
+                  type="number"
+                  min="1"
+                  value={minEquipes}
+                  onChange={(e) => setMinEquipes(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Enquanto houver menos equipes que este valor, lancamentos e descontos de pontos ficam bloqueados.
+                </p>
+              </div>
+              <Button onClick={handleSaveSystemConfig} variant="outline" className="w-full">
+                Salvar Configuracao
               </Button>
             </CardContent>
           </Card>

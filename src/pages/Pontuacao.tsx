@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -6,43 +6,253 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { useEquipesComParticipantes, usePontuacoes, useGincanas } from '@/hooks/useDatabase';
+import { useEquipesComParticipantes, usePontuacoes, useGincanas, useInscritos, useSorteios, useSystemConfig } from '@/hooks/useDatabase';
 import { Plus, Minus, History, Loader2, Trophy, Users, ListChecks } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { toast } from 'sonner';
+import type { Inscrito, EquipeComParticipantes } from '@/types';
+
+function normalizeText(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+const PARTICIPANTE_NAO_ENCONTRADO = 'Participante nao encontrado.';
+
+function findParticipanteByQuery(inscritos: Inscrito[], rawQuery: string) {
+  const query = rawQuery.trim();
+  if (!query) {
+    return { error: 'Informe o nome, numero ou pulseira do participante ou equipe.' };
+  }
+
+  const isNumeric = /^\d+$/.test(query);
+
+  if (isNumeric) {
+    const numero = Number(query);
+    const matchNumero = inscritos.find((i) => i.numero === numero);
+    if (matchNumero) {
+      return { participante: matchNumero };
+    }
+
+    const matchesPulseira = inscritos.filter((i) => {
+      if (!i.numeroPulseira) return false;
+      const pulseira = i.numeroPulseira.trim();
+      if (pulseira === query) return true;
+      const pulseiraNum = Number(pulseira);
+      return Number.isFinite(pulseiraNum) && pulseiraNum === numero;
+    });
+
+    if (matchesPulseira.length === 1) {
+      return { participante: matchesPulseira[0] };
+    }
+
+    if (matchesPulseira.length > 1) {
+      return { error: 'Mais de um participante encontrado para este numero de pulseira.' };
+    }
+
+    return { error: PARTICIPANTE_NAO_ENCONTRADO };
+  }
+
+  const normalizedQuery = normalizeText(query);
+  if (!normalizedQuery) {
+    return { error: 'Informe o nome, numero ou pulseira do participante ou equipe.' };
+  }
+
+  const exactMatches = inscritos.filter((i) => normalizeText(i.nome) === normalizedQuery);
+  if (exactMatches.length === 1) {
+    return { participante: exactMatches[0] };
+  }
+  if (exactMatches.length > 1) {
+    return { error: 'Mais de um participante com este nome. Use numero ou pulseira.' };
+  }
+
+  const partialMatches = inscritos.filter((i) => normalizeText(i.nome).includes(normalizedQuery));
+  if (partialMatches.length === 1) {
+    return { participante: partialMatches[0] };
+  }
+  if (partialMatches.length > 1) {
+    return { error: 'Mais de um participante encontrado. Seja mais especifico.' };
+  }
+
+  return { error: PARTICIPANTE_NAO_ENCONTRADO };
+}
+
+function findEquipeByQuery(equipes: EquipeComParticipantes[], rawQuery: string) {
+  const query = rawQuery.trim();
+  if (!query) {
+    return { error: 'Informe o nome ou numero da equipe.' };
+  }
+
+  const isNumeric = /^\d+$/.test(query);
+  if (isNumeric) {
+    const numero = Number(query);
+    const matchNumero = equipes.find((e) => e.numero === numero);
+    if (matchNumero) {
+      return { equipe: matchNumero };
+    }
+    return { error: 'Equipe nao encontrada.' };
+  }
+
+  const normalizedQuery = normalizeText(query);
+  if (!normalizedQuery) {
+    return { error: 'Informe o nome ou numero da equipe.' };
+  }
+
+  const exactMatches = equipes.filter((e) => normalizeText(e.nome) === normalizedQuery);
+  if (exactMatches.length === 1) {
+    return { equipe: exactMatches[0] };
+  }
+  if (exactMatches.length > 1) {
+    return { error: 'Mais de uma equipe com este nome. Seja mais especifico.' };
+  }
+
+  const partialMatches = equipes.filter((e) => normalizeText(e.nome).includes(normalizedQuery));
+  if (partialMatches.length === 1) {
+    return { equipe: partialMatches[0] };
+  }
+  if (partialMatches.length > 1) {
+    return { error: 'Mais de uma equipe encontrada. Seja mais especifico.' };
+  }
+
+  return { error: 'Equipe nao encontrada.' };
+}
 
 const Pontuacao = () => {
   const { equipes, loading: equipesLoading, reload: reloadEquipes } = useEquipesComParticipantes();
   const { pontuacoes, adicionarPontuacao, loading: pontuacoesLoading } = usePontuacoes();
   const { gincanas, loading: gincanasLoading } = useGincanas();
-  
-  const [selectedEquipe, setSelectedEquipe] = useState<string | null>(null);
+  const { inscritos, loading: inscritosLoading } = useInscritos();
+  const { sorteios, loading: sorteiosLoading } = useSorteios();
+  const { config: systemConfig, loading: systemLoading } = useSystemConfig();
+
+  const [searchTerm, setSearchTerm] = useState('');
+  const [searchError, setSearchError] = useState('');
+  const [selectedParticipante, setSelectedParticipante] = useState<Inscrito | null>(null);
+  const [selectedEquipeId, setSelectedEquipeId] = useState<string | null>(null);
   const [selectedGincana, setSelectedGincana] = useState<string>('');
   const [pontos, setPontos] = useState('');
   const [observacao, setObservacao] = useState('');
-  const [isAdding, setIsAdding] = useState(false);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isPenalty, setIsPenalty] = useState(false);
 
-  const loading = equipesLoading || pontuacoesLoading || gincanasLoading;
+  const inscritosList = useMemo(() => Array.from(inscritos.values()), [inscritos]);
+  const selectedEquipe = selectedEquipeId ? equipes.find((e) => e.id === selectedEquipeId) : null;
+  const minEquipes = systemConfig?.minEquipes ?? 2;
+  const hasMinTeams = equipes.length >= minEquipes;
 
-  const handleAddPontos = async () => {
-    if (!selectedEquipe || !pontos || !selectedGincana) return;
-    
-    const pontosNum = parseInt(pontos) * (isPenalty ? -1 : 1);
-    await adicionarPontuacao(selectedEquipe, pontosNum, selectedGincana, observacao || undefined);
-    reloadEquipes();
-    
+  const loading =
+    equipesLoading ||
+    pontuacoesLoading ||
+    gincanasLoading ||
+    inscritosLoading ||
+    sorteiosLoading ||
+    systemLoading;
+
+  const resetForm = () => {
+    setSearchTerm('');
+    setSearchError('');
+    setSelectedParticipante(null);
+    setSelectedEquipeId(null);
+    setSelectedGincana('');
     setPontos('');
     setObservacao('');
-    setSelectedEquipe(null);
-    setSelectedGincana('');
-    setIsAdding(false);
     setIsPenalty(false);
   };
 
-  const openAddDialog = (equipeId: string, penalty: boolean = false) => {
-    setSelectedEquipe(equipeId);
-    setIsPenalty(penalty);
-    setIsAdding(true);
+  const handleBuscarParticipante = () => {
+    setSearchError('');
+    setSelectedParticipante(null);
+    setSelectedEquipeId(null);
+
+    if (inscritosList.length === 0 && equipes.length === 0) {
+      setSearchError('Nenhum participante ou equipe cadastrada.');
+      return;
+    }
+
+    const result = findParticipanteByQuery(inscritosList, searchTerm);
+    if (result.error || !result.participante) {
+      if (result.error && result.error !== PARTICIPANTE_NAO_ENCONTRADO) {
+        setSearchError(result.error);
+        return;
+      }
+
+      const equipeResult = findEquipeByQuery(equipes, searchTerm);
+      if (equipeResult.equipe) {
+        setSelectedEquipeId(equipeResult.equipe.id);
+        return;
+      }
+
+      setSearchError(equipeResult.error || result.error || 'Participante ou equipe nao encontrada.');
+      return;
+    }
+
+    const participante = result.participante;
+    const sorteiosParticipante = sorteios.filter((s) => s.numeroInscrito === participante.numero);
+
+    if (sorteiosParticipante.length === 0) {
+      setSearchError('Participante ainda nao foi vinculado a uma equipe.');
+      return;
+    }
+
+    if (sorteiosParticipante.length > 1) {
+      setSearchError('Participante vinculado a mais de uma equipe. Revise os sorteios.');
+      return;
+    }
+
+    const equipeId = sorteiosParticipante[0].equipeId;
+    const equipe = equipes.find((e) => e.id === equipeId);
+
+    if (!equipe) {
+      setSearchError('Equipe do participante nao encontrada.');
+      return;
+    }
+
+    setSelectedParticipante(participante);
+    setSelectedEquipeId(equipe.id);
+  };
+
+  const handleAddPontos = async () => {
+    if (!hasMinTeams) {
+      toast.error(`E necessario ter pelo menos ${minEquipes} equipes cadastradas.`);
+      return;
+    }
+
+    if (!selectedEquipe) {
+      toast.error('Identifique um participante ou equipe antes de lancar pontos.');
+      return;
+    }
+
+    if (!selectedGincana) {
+      toast.error('Selecione a gincana/modalidade.');
+      return;
+    }
+
+    const pontosNum = Number(pontos);
+    if (!Number.isFinite(pontosNum) || pontosNum <= 0) {
+      toast.error('Informe um valor de pontos valido.');
+      return;
+    }
+
+    if (isPenalty && selectedEquipe.pontuacaoTotal - pontosNum < 0) {
+      toast.error('A pontuacao da equipe nao pode ficar negativa.');
+      return;
+    }
+
+    await adicionarPontuacao(
+      selectedEquipe.id,
+      isPenalty ? -pontosNum : pontosNum,
+      selectedGincana,
+      observacao || undefined,
+      selectedParticipante?.numero
+    );
+    reloadEquipes();
+    toast.success('Pontuacao registrada com sucesso.');
+
+    resetForm();
+    setIsDialogOpen(false);
   };
 
   if (loading) {
@@ -55,21 +265,25 @@ const Pontuacao = () => {
     );
   }
 
-
   const getEquipeNome = (equipeId: string) => {
-    return equipes.find(e => e.id === equipeId)?.nome || 'Equipe';
+    return equipes.find((e) => e.id === equipeId)?.nome || 'Equipe';
   };
 
   const getEquipeCor = (equipeId: string) => {
-    return equipes.find(e => e.id === equipeId)?.cor || 1;
+    return equipes.find((e) => e.id === equipeId)?.cor || 1;
   };
 
   const getEquipeImagem = (equipeId: string) => {
-    return equipes.find(e => e.id === equipeId)?.imagemUrl;
+    return equipes.find((e) => e.id === equipeId)?.imagemUrl;
   };
 
   const getGincanaNome = (gincanaId: string) => {
-    return gincanas.find(g => g.id === gincanaId)?.nome || gincanaId;
+    return gincanas.find((g) => g.id === gincanaId)?.nome || gincanaId;
+  };
+
+  const getParticipanteNome = (numeroInscrito?: number) => {
+    if (!numeroInscrito) return undefined;
+    return inscritos.get(numeroInscrito)?.nome;
   };
 
   const totalPontos = pontuacoes.reduce((sum, p) => sum + p.pontos, 0);
@@ -78,10 +292,28 @@ const Pontuacao = () => {
     <MainLayout>
       <div className="space-y-8">
         {/* Header */}
-        <div>
-          <h1 className="text-display-sm text-foreground">Pontuação</h1>
-          <p className="text-muted-foreground">Pontuação geral das equipes</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-display-sm text-foreground">Pontuacao</h1>
+            <p className="text-muted-foreground">Pontuacao geral das equipes</p>
+          </div>
+          <Button
+            className="gap-2"
+            onClick={() => setIsDialogOpen(true)}
+            disabled={!hasMinTeams}
+          >
+            <Plus className="h-4 w-4" />
+            Lancar Pontos
+          </Button>
         </div>
+
+        {!hasMinTeams && (
+          <Card className="glass border-destructive/50">
+            <CardContent className="pt-6 text-sm text-destructive">
+              E necessario ter pelo menos {minEquipes} equipes cadastradas para lancar ou descontar pontos. Atualmente: {equipes.length}.
+            </CardContent>
+          </Card>
+        )}
 
         {/* Summary */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -102,7 +334,7 @@ const Pontuacao = () => {
                 <ListChecks className="h-5 w-5 text-success" />
               </div>
               <div>
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">Lançamentos</p>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Lancamentos</p>
                 <p className="text-2xl font-bold">{pontuacoes.length}</p>
               </div>
             </CardContent>
@@ -136,90 +368,78 @@ const Pontuacao = () => {
           {equipes
             .sort((a, b) => b.pontuacaoTotal - a.pontuacaoTotal)
             .map((equipe, index) => (
-            <motion.div
-              key={equipe.id}
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: index * 0.05 }}
-            >
-              <Card 
-                className="glass overflow-hidden relative transition-all hover:-translate-y-0.5 hover:shadow-lg"
-                style={{ borderColor: `hsl(var(--team-${equipe.cor}))` }}
+              <motion.div
+                key={equipe.id}
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: index * 0.05 }}
               >
-                <div 
-                  className="h-2"
-                  style={{ backgroundColor: `hsl(var(--team-${equipe.cor}))` }}
-                />
-                <div
-                  className={`absolute right-3 top-3 rounded-full px-2 py-1 text-xs font-semibold ${
-                    index === 0 ? 'bg-gold/20 text-gold' :
-                    index === 1 ? 'bg-silver/20 text-silver' :
-                    index === 2 ? 'bg-bronze/20 text-bronze' :
-                    'bg-secondary/40 text-muted-foreground'
-                  }`}
+                <Card
+                  className="glass overflow-hidden relative transition-all hover:-translate-y-0.5 hover:shadow-lg"
+                  style={{ borderColor: `hsl(var(--team-${equipe.cor}))` }}
                 >
-                  #{index + 1}
-                </div>
-                <CardHeader className="pb-2">
-                  <div className="flex items-center gap-3">
-                    {equipe.imagemUrl ? (
-                      <div
-                        className="h-12 w-12 rounded-full overflow-hidden border-2"
-                        style={{ borderColor: `hsl(var(--team-${equipe.cor}))` }}
-                      >
-                        <img
-                          src={equipe.imagemUrl}
-                          alt={equipe.nome}
-                          className="h-full w-full object-cover"
+                  <div
+                    className="h-2"
+                    style={{ backgroundColor: `hsl(var(--team-${equipe.cor}))` }}
+                  />
+                  <div
+                    className={`absolute right-3 top-3 rounded-full px-2 py-1 text-xs font-semibold ${
+                      index === 0
+                        ? 'bg-gold/20 text-gold'
+                        : index === 1
+                        ? 'bg-silver/20 text-silver'
+                        : index === 2
+                        ? 'bg-bronze/20 text-bronze'
+                        : 'bg-secondary/40 text-muted-foreground'
+                    }`}
+                  >
+                    #{index + 1}
+                  </div>
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center gap-3">
+                      {equipe.imagemUrl ? (
+                        <div
+                          className="h-12 w-12 rounded-full overflow-hidden border-2"
+                          style={{ borderColor: `hsl(var(--team-${equipe.cor}))` }}
+                        >
+                          <img
+                            src={equipe.imagemUrl}
+                            alt={equipe.nome}
+                            className="h-full w-full object-cover"
+                          />
+                        </div>
+                      ) : (
+                        <div
+                          className="h-12 w-12 rounded-full border-2"
+                          style={{ borderColor: `hsl(var(--team-${equipe.cor}))` }}
                         />
+                      )}
+                      <div className="min-w-0">
+                        <CardTitle
+                          className="text-lg truncate"
+                          style={{ color: `hsl(var(--team-${equipe.cor}))` }}
+                        >
+                          {equipe.nome}
+                        </CardTitle>
+                        <p className="text-xs text-muted-foreground">Num. {equipe.numero}</p>
                       </div>
-                    ) : (
-                      <div
-                        className="h-12 w-12 rounded-full border-2"
-                        style={{ borderColor: `hsl(var(--team-${equipe.cor}))` }}
-                      />
-                    )}
-                    <CardTitle 
-                      className="text-lg truncate"
-                      style={{ color: `hsl(var(--team-${equipe.cor}))` }}
-                    >
-                      {equipe.nome}
-                    </CardTitle>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-2 items-end">
-                    <div>
-                      <p className="text-3xl font-bold">{equipe.pontuacaoTotal}</p>
-                      <p className="text-xs uppercase tracking-wide text-muted-foreground">pontos</p>
                     </div>
-                    <div className="text-right">
-                      <p className="text-base font-semibold">{equipe.participantes}</p>
-                      <p className="text-xs text-muted-foreground">participantes</p>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-2 items-end">
+                      <div>
+                        <p className="text-3xl font-bold">{equipe.pontuacaoTotal}</p>
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">pontos</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-base font-semibold">{equipe.participantes}</p>
+                        <p className="text-xs text-muted-foreground">participantes</p>
+                      </div>
                     </div>
-                  </div>
-                  
-                  <div className="flex gap-2">
-                    <Button
-                      className="flex-1 rounded-full"
-                      onClick={() => openAddDialog(equipe.id, false)}
-                    >
-                      <Plus className="mr-1 h-4 w-4" />
-                      Pontos
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      className="flex-1 rounded-full"
-                      onClick={() => openAddDialog(equipe.id, true)}
-                    >
-                      <Minus className="mr-1 h-4 w-4" />
-                      Penalidade
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </motion.div>
-          ))}
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ))}
         </div>
 
         {/* History */}
@@ -227,13 +447,13 @@ const Pontuacao = () => {
           <CardHeader>
             <div className="flex items-center gap-2">
               <History className="h-5 w-5 text-muted-foreground" />
-              <CardTitle>Histórico de Lançamentos</CardTitle>
+              <CardTitle>Historico de Lancamentos</CardTitle>
             </div>
           </CardHeader>
           <CardContent>
             {pontuacoes.length === 0 ? (
               <p className="text-center text-muted-foreground py-8">
-                Nenhum lançamento registrado
+                Nenhum lancamento registrado
               </p>
             ) : (
               <div className="custom-scrollbar space-y-3 max-h-96 overflow-y-auto pr-1">
@@ -267,12 +487,17 @@ const Pontuacao = () => {
                             {getGincanaNome(p.gincanaId)}
                           </span>
                           <span className="text-xs text-muted-foreground">
-                            {new Date(p.dataHora).toLocaleTimeString('pt-BR', { 
-                              hour: '2-digit', 
-                              minute: '2-digit' 
+                            {new Date(p.dataHora).toLocaleTimeString('pt-BR', {
+                              hour: '2-digit',
+                              minute: '2-digit',
                             })}
                           </span>
                         </div>
+                        {p.numeroInscrito && (
+                          <p className="text-xs text-muted-foreground">
+                            Participante: {getParticipanteNome(p.numeroInscrito) || `Num. ${p.numeroInscrito}`}
+                          </p>
+                        )}
                         {p.observacao && (
                           <p className="text-sm text-muted-foreground">{p.observacao}</p>
                         )}
@@ -292,7 +517,15 @@ const Pontuacao = () => {
         </Card>
 
         {/* Add Points Dialog */}
-        <Dialog open={isAdding} onOpenChange={setIsAdding}>
+        <Dialog
+          open={isDialogOpen}
+          onOpenChange={(open) => {
+            setIsDialogOpen(open);
+            if (!open) {
+              resetForm();
+            }
+          }}
+        >
           <DialogContent>
             <DialogHeader>
               <DialogTitle>
@@ -300,14 +533,89 @@ const Pontuacao = () => {
               </DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
-              <div>
-                <Label>Equipe</Label>
-                <p className="text-lg font-semibold" style={{ 
-                  color: selectedEquipe ? `hsl(var(--team-${getEquipeCor(selectedEquipe)}))` : undefined 
-                }}>
-                  {selectedEquipe ? getEquipeNome(selectedEquipe) : ''}
-                </p>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant={isPenalty ? 'outline' : 'default'}
+                  onClick={() => setIsPenalty(false)}
+                  className="flex-1"
+                >
+                  <Plus className="mr-1 h-4 w-4" />
+                  Adicionar
+                </Button>
+                <Button
+                  type="button"
+                  variant={isPenalty ? 'destructive' : 'outline'}
+                  onClick={() => setIsPenalty(true)}
+                  className="flex-1"
+                >
+                  <Minus className="mr-1 h-4 w-4" />
+                  Penalidade
+                </Button>
               </div>
+
+              <div>
+                <Label htmlFor="participante">Participante ou equipe (nome, numero ou pulseira)</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="participante"
+                    placeholder="Ex: Maria Silva, Equipe Azul ou 123"
+                    value={searchTerm}
+                    onChange={(e) => {
+                      setSearchTerm(e.target.value);
+                      setSearchError('');
+                      setSelectedParticipante(null);
+                      setSelectedEquipeId(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleBuscarParticipante();
+                      }
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleBuscarParticipante}
+                    disabled={!searchTerm.trim()}
+                  >
+                    Buscar
+                  </Button>
+                </div>
+                {searchError && (
+                  <p className="text-sm text-destructive mt-2">{searchError}</p>
+                )}
+              </div>
+
+              {selectedEquipe && (
+                <Card className="border-border/70 bg-secondary/30">
+                  <CardContent className="pt-4 space-y-2">
+                    {selectedParticipante && (
+                      <div>
+                        <p className="text-sm text-muted-foreground">Participante</p>
+                        <p className="font-semibold">{selectedParticipante.nome}</p>
+                        <p className="text-xs text-muted-foreground">
+                          Num. {selectedParticipante.numero} - Pulseira {selectedParticipante.numero}
+                        </p>
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-sm text-muted-foreground">Equipe</p>
+                      <p
+                        className="font-semibold"
+                        style={{ color: `hsl(var(--team-${selectedEquipe.cor}))` }}
+                      >
+                        {selectedEquipe.nome} (Num. {selectedEquipe.numero})
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Pontuacao atual: {selectedEquipe.pontuacaoTotal} pts
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
               <div>
                 <Label htmlFor="gincana">Gincana/Modalidade</Label>
                 <Select value={selectedGincana} onValueChange={setSelectedGincana}>
@@ -336,21 +644,21 @@ const Pontuacao = () => {
                 />
               </div>
               <div>
-                <Label htmlFor="observacao">Observação (opcional)</Label>
+                <Label htmlFor="observacao">Observacao (opcional)</Label>
                 <Input
                   id="observacao"
-                  placeholder="Ex: 1º lugar"
+                  placeholder="Ex: 1o lugar"
                   value={observacao}
                   onChange={(e) => setObservacao(e.target.value)}
                 />
               </div>
               <div className="flex gap-2 justify-end">
-                <Button variant="outline" onClick={() => setIsAdding(false)}>
+                <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
                   Cancelar
                 </Button>
-                <Button 
+                <Button
                   onClick={handleAddPontos}
-                  disabled={!pontos || !selectedGincana}
+                  disabled={!pontos || !selectedGincana || !selectedEquipe}
                   variant={isPenalty ? 'destructive' : 'default'}
                 >
                   {isPenalty ? 'Aplicar Penalidade' : 'Adicionar Pontos'}

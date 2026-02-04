@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
+import { useSystemConfig } from '@/hooks/useDatabase';
 import { Trophy, Plus, Shuffle, Play, Check, Trash2, Eye, Settings, Dices, ExternalLink } from 'lucide-react';
 import { TournamentBracket } from '@/components/torneio/TournamentBracket';
 import * as torneioService from '@/lib/torneioService';
@@ -24,6 +25,7 @@ const TORNEIO_SORTEIO_DELAY_MS = 2500;
 export default function Torneios() {
   const { toast } = useToast();
   const { user } = useAuth();
+  const { config: systemConfig } = useSystemConfig();
   
   // Estados
   const [gincanas, setGincanas] = useState<Gincana[]>([]);
@@ -31,6 +33,8 @@ export default function Torneios() {
   const [torneios, setTorneios] = useState<Torneio[]>([]);
   const [confrontos, setConfrontos] = useState<Confronto[]>([]);
   const [loading, setLoading] = useState(true);
+  const minEquipes = systemConfig?.minEquipes ?? 2;
+  const hasMinTeams = equipes.length >= minEquipes;
   
   // Torneio selecionado para visualização
   const [selectedTorneio, setSelectedTorneio] = useState<Torneio | null>(null);
@@ -108,6 +112,7 @@ export default function Torneios() {
       const equipesData = (equipesRes.data || []).map((row) => ({
         id: row.id,
         nome: row.nome,
+        numero: row.numero,
         lider: row.lider,
         vice: row.vice,
         cor: row.cor,
@@ -321,6 +326,21 @@ export default function Torneios() {
   
   async function handleFinalizarTorneio(confrontosAtuais: Confronto[]) {
     if (!selectedTorneio || !user) return;
+
+    if (!hasMinTeams) {
+      toast({
+        title: 'Numero minimo de equipes nao atingido',
+        description: `Necessario ter pelo menos ${minEquipes} equipes para aplicar pontuacao.`,
+        variant: 'destructive',
+      });
+
+      await torneioService.updateTorneio(selectedTorneio.id, { status: 'finalizado' });
+      setTorneios(prev => prev.map(t =>
+        t.id === selectedTorneio.id ? { ...t, status: 'finalizado' as const } : t
+      ));
+      setSelectedTorneio(prev => prev ? { ...prev, status: 'finalizado' } : null);
+      return;
+    }
     
     const resultado = torneioService.calcularResultado(confrontosAtuais);
     

@@ -11,6 +11,7 @@ const createInscrito = (numero: number, nome: string, dataNascimento: string, ig
   distrito,
   statusPagamento: 'PAID',
   isManual: false,
+  numeroPulseira: String(numero),
 });
 
 // 50 inscritos fictícios
@@ -69,14 +70,14 @@ export const mockInscritos: Inscrito[] = [
 
 // 8 equipes pré-configuradas
 export const mockEquipes: Equipe[] = [
-  { id: "eq-1", nome: "Leões de Judá", lider: "Pastor Carlos", vice: "Maria Silva", cor: 1, createdAt: "2024-01-01", updatedAt: "2024-01-01" },
-  { id: "eq-2", nome: "Águias do Altíssimo", lider: "Diácono Pedro", vice: "Ana Costa", cor: 2, createdAt: "2024-01-01", updatedAt: "2024-01-01" },
-  { id: "eq-3", nome: "Guerreiros da Fé", lider: "Líder João", vice: "Paula Santos", cor: 3, createdAt: "2024-01-01", updatedAt: "2024-01-01" },
-  { id: "eq-4", nome: "Exército do Rei", lider: "Presbítero Lucas", vice: "Carla Lima", cor: 4, createdAt: "2024-01-01", updatedAt: "2024-01-01" },
-  { id: "eq-5", nome: "Fortaleza de Deus", lider: "Evangelista André", vice: "Julia Martins", cor: 5, createdAt: "2024-01-01", updatedAt: "2024-01-01" },
-  { id: "eq-6", nome: "Soldados de Cristo", lider: "Missionário Tiago", vice: "Fernanda Alves", cor: 6, createdAt: "2024-01-01", updatedAt: "2024-01-01" },
-  { id: "eq-7", nome: "Vencedores", lider: "Pastor Marcos", vice: "Renata Souza", cor: 7, createdAt: "2024-01-01", updatedAt: "2024-01-01" },
-  { id: "eq-8", nome: "Embaixadores do Céu", lider: "Diácono Felipe", vice: "Gabriela Nunes", cor: 8, createdAt: "2024-01-01", updatedAt: "2024-01-01" },
+  { id: "eq-1", numero: 1, nome: "Leões de Judá", lider: "Pastor Carlos", vice: "Maria Silva", cor: 1, createdAt: "2024-01-01", updatedAt: "2024-01-01" },
+  { id: "eq-2", numero: 2, nome: "Águias do Altíssimo", lider: "Diácono Pedro", vice: "Ana Costa", cor: 2, createdAt: "2024-01-01", updatedAt: "2024-01-01" },
+  { id: "eq-3", numero: 3, nome: "Guerreiros da Fé", lider: "Líder João", vice: "Paula Santos", cor: 3, createdAt: "2024-01-01", updatedAt: "2024-01-01" },
+  { id: "eq-4", numero: 4, nome: "Exército do Rei", lider: "Presbítero Lucas", vice: "Carla Lima", cor: 4, createdAt: "2024-01-01", updatedAt: "2024-01-01" },
+  { id: "eq-5", numero: 5, nome: "Fortaleza de Deus", lider: "Evangelista André", vice: "Julia Martins", cor: 5, createdAt: "2024-01-01", updatedAt: "2024-01-01" },
+  { id: "eq-6", numero: 6, nome: "Soldados de Cristo", lider: "Missionário Tiago", vice: "Fernanda Alves", cor: 6, createdAt: "2024-01-01", updatedAt: "2024-01-01" },
+  { id: "eq-7", numero: 7, nome: "Vencedores", lider: "Pastor Marcos", vice: "Renata Souza", cor: 7, createdAt: "2024-01-01", updatedAt: "2024-01-01" },
+  { id: "eq-8", numero: 8, nome: "Embaixadores do Céu", lider: "Diácono Felipe", vice: "Gabriela Nunes", cor: 8, createdAt: "2024-01-01", updatedAt: "2024-01-01" },
 ];
 
 // 2 gincanas de exemplo

@@ -71,7 +71,7 @@ export async function syncInscritos(): Promise<{ success: boolean; count: number
     const manualInscritos = existingInscritos || [];
 
     // Mapear inscritos do banco MySQL
-    const apiInscritos: { user_id: string; numero: number; nome: string; data_nascimento: string | null; idade: number; igreja: string; distrito: string; foto_url: string | null; status_pagamento: string; is_manual: boolean; numero_original: string }[] = registrations.map((reg, index) => {
+    const apiInscritos: { user_id: string; numero: number; nome: string; data_nascimento: string | null; idade: number; igreja: string; distrito: string; foto_url: string | null; status_pagamento: string; is_manual: boolean; numero_original: string; numero_pulseira: string }[] = registrations.map((reg, index) => {
       // Mapear status do banco para nosso enum
       const mapStatus = (status: string): 'PAID' | 'PENDING' | 'CANCELLED' => {
         const upperStatus = status?.toUpperCase() || '';
@@ -92,6 +92,7 @@ export async function syncInscritos(): Promise<{ success: boolean; count: number
         status_pagamento: mapStatus(reg.status),
         is_manual: false,
         numero_original: reg.numero, // Preservar ID original do banco
+        numero_pulseira: String(index + 1), // Numero da pulseira = numero da lista
       };
     });
 
@@ -109,6 +110,7 @@ export async function syncInscritos(): Promise<{ success: boolean; count: number
       status_pagamento: inscrito.status_pagamento || 'MANUAL',
       is_manual: true,
       numero_original: inscrito.numero_original || null,
+      numero_pulseira: String(startManualNumber + index),
     }));
 
     // Deletar todos os inscritos não-manuais do usuário

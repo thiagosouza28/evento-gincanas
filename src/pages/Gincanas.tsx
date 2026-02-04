@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,7 @@ import { motion } from 'framer-motion';
 import type { Gincana, CategoriaGincana } from '@/types';
 import { toast } from 'sonner';
 import { createId } from '@/lib/id';
+import { useSearchParams } from 'react-router-dom';
 
 const categoriaLabels: Record<CategoriaGincana, string> = {
   adulto: 'Adulto',
@@ -23,8 +24,24 @@ const categoriaLabels: Record<CategoriaGincana, string> = {
 
 const Gincanas = () => {
   const { gincanas, loading, saveGincana, deleteGincana, reload } = useGincanas();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [isCreating, setIsCreating] = useState(false);
   const [newGincana, setNewGincana] = useState({ nome: '', categoria: '' as CategoriaGincana | '' });
+
+  useEffect(() => {
+    if (searchParams.get('new') === '1') {
+      setIsCreating(true);
+    }
+  }, [searchParams]);
+
+  const handleDialogChange = (open: boolean) => {
+    setIsCreating(open);
+    if (!open && searchParams.get('new') === '1') {
+      const next = new URLSearchParams(searchParams);
+      next.delete('new');
+      setSearchParams(next, { replace: true });
+    }
+  };
 
   const handleCreate = async () => {
     if (!newGincana.nome || !newGincana.categoria) return;
@@ -68,7 +85,7 @@ const Gincanas = () => {
             <h1 className="text-display-sm text-foreground">Gincanas</h1>
             <p className="text-muted-foreground">Gerencie os eventos e gincanas</p>
           </div>
-          <Dialog open={isCreating} onOpenChange={setIsCreating}>
+          <Dialog open={isCreating} onOpenChange={handleDialogChange}>
             <DialogTrigger asChild>
               <Button>
                 <Plus className="mr-2 h-4 w-4" />

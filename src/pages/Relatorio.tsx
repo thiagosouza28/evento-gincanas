@@ -76,6 +76,7 @@ export default function Relatorio() {
       const equipesData = (equipesRes.data || []).map(row => ({
         id: row.id,
         nome: row.nome,
+        numero: row.numero,
         lider: row.lider,
         vice: row.vice,
         cor: row.cor,

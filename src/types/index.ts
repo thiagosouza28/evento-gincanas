@@ -11,10 +11,12 @@ export interface Inscrito {
   statusPagamento: 'PAID' | 'PENDING' | 'CANCELLED' | 'MANUAL';
   isManual?: boolean; // Inscrito adicionado manualmente
   numeroOriginal?: string; // Número original do banco de dados externo
+  numeroPulseira?: string; // Numero da pulseira (igual ao numero da lista)
 }
 
 export interface Equipe {
   id: string;
+  numero: number; // Numero identificador unico da equipe
   nome: string;
   lider: string;
   vice: string;
@@ -51,6 +53,7 @@ export interface Pontuacao {
   pontos: number;
   observacao?: string;
   dataHora: string;
+  numeroInscrito?: number; // Participante vinculado ao lancamento (opcional)
 }
 
 export interface SyncQueue {
@@ -66,6 +69,10 @@ export interface ApiConfig {
   baseUrl: string;
   token: string;
   lastSync?: string;
+}
+
+export interface SystemConfig {
+  minEquipes: number;
 }
 
 export interface EquipeComParticipantes extends Equipe {

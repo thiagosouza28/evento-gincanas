@@ -67,6 +67,7 @@ export type Database = {
           imagem_url: string | null
           lider: string
           nome: string
+          numero: number
           updated_at: string
           user_id: string
           vice: string
@@ -79,6 +80,7 @@ export type Database = {
           imagem_url?: string | null
           lider: string
           nome: string
+          numero: number
           updated_at?: string
           user_id: string
           vice: string
@@ -91,6 +93,7 @@ export type Database = {
           imagem_url?: string | null
           lider?: string
           nome?: string
+          numero?: number
           updated_at?: string
           user_id?: string
           vice?: string
@@ -140,6 +143,7 @@ export type Database = {
           nome: string
           numero: number
           numero_original: string | null
+          numero_pulseira: string
           status_pagamento: string | null
           updated_at: string
           user_id: string
@@ -156,6 +160,7 @@ export type Database = {
           nome: string
           numero: number
           numero_original?: string | null
+          numero_pulseira: string
           status_pagamento?: string | null
           updated_at?: string
           user_id: string
@@ -172,6 +177,7 @@ export type Database = {
           nome?: string
           numero?: number
           numero_original?: string | null
+          numero_pulseira?: string
           status_pagamento?: string | null
           updated_at?: string
           user_id?: string
@@ -185,6 +191,7 @@ export type Database = {
           equipe_id: string
           gincana_id: string
           id: string
+          numero_inscrito: number | null
           observacao: string | null
           pontos: number
           user_id: string
@@ -195,6 +202,7 @@ export type Database = {
           equipe_id: string
           gincana_id: string
           id?: string
+          numero_inscrito?: number | null
           observacao?: string | null
           pontos?: number
           user_id: string
@@ -205,6 +213,7 @@ export type Database = {
           equipe_id?: string
           gincana_id?: string
           id?: string
+          numero_inscrito?: number | null
           observacao?: string | null
           pontos?: number
           user_id?: string

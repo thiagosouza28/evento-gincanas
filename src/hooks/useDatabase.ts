@@ -13,7 +13,7 @@ export {
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
-import type { ApiConfig } from '@/types';
+import type { ApiConfig, SystemConfig } from '@/types';
 
 // Keep useDatabase for initialization checking
 export function useDatabase() {
@@ -79,6 +79,50 @@ export function useApiConfig() {
   const saveConfig = async (newConfig: ApiConfig) => {
     localStorage.setItem('apiConfig', JSON.stringify(newConfig));
     setConfig(newConfig);
+  };
+
+  return { config, loading, saveConfig, reload: loadConfig };
+}
+
+// Sistema config (minimo de equipes)
+const DEFAULT_SYSTEM_CONFIG: SystemConfig = { minEquipes: 2 };
+
+export function useSystemConfig() {
+  const [config, setConfig] = useState<SystemConfig>(DEFAULT_SYSTEM_CONFIG);
+  const [loading, setLoading] = useState(true);
+
+  const loadConfig = useCallback(async () => {
+    setLoading(true);
+    try {
+      const stored = localStorage.getItem('systemConfig');
+      if (stored) {
+        const parsed = JSON.parse(stored) as Partial<SystemConfig>;
+        const minEquipes = Number.isFinite(parsed.minEquipes)
+          ? Math.max(1, Math.floor(parsed.minEquipes as number))
+          : DEFAULT_SYSTEM_CONFIG.minEquipes;
+        setConfig({ minEquipes });
+      } else {
+        setConfig(DEFAULT_SYSTEM_CONFIG);
+      }
+    } catch (error) {
+      console.error('Erro ao carregar configuracao do sistema:', error);
+      setConfig(DEFAULT_SYSTEM_CONFIG);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadConfig();
+  }, [loadConfig]);
+
+  const saveConfig = async (newConfig: SystemConfig) => {
+    const minEquipes = Number.isFinite(newConfig.minEquipes)
+      ? Math.max(1, Math.floor(newConfig.minEquipes))
+      : DEFAULT_SYSTEM_CONFIG.minEquipes;
+    const normalized = { minEquipes };
+    localStorage.setItem('systemConfig', JSON.stringify(normalized));
+    setConfig(normalized);
   };
 
   return { config, loading, saveConfig, reload: loadConfig };

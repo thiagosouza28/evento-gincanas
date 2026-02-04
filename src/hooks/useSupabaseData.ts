@@ -40,6 +40,7 @@ export function useSupabaseInscritos() {
           statusPagamento: (row.status_pagamento as Inscrito['statusPagamento']) || 'PENDING',
           isManual: row.is_manual || false,
           numeroOriginal: row.numero_original || undefined,
+          numeroPulseira: String(row.numero),
         });
       }
       setInscritos(map);
@@ -75,6 +76,7 @@ export function useSupabaseInscritos() {
         status_pagamento: inscrito.statusPagamento,
         is_manual: inscrito.isManual || false,
         numero_original: inscrito.numeroOriginal || null,
+        numero_pulseira: String(inscrito.numero),
       }, { onConflict: 'user_id,numero' });
 
     if (error) throw error;
@@ -124,6 +126,7 @@ export function useSupabaseEquipes() {
       setEquipes((data || []).map(row => ({
         id: row.id,
         nome: row.nome,
+        numero: row.numero,
         lider: row.lider,
         vice: row.vice,
         cor: row.cor,
@@ -152,6 +155,7 @@ export function useSupabaseEquipes() {
         id: equipe.id,
         user_id: user.id,
         nome: equipe.nome,
+        numero: equipe.numero,
         lider: equipe.lider,
         vice: equipe.vice,
         cor: equipe.cor,
@@ -240,6 +244,7 @@ export function useSupabaseEquipesComParticipantes(gincanaId?: string) {
       setEquipes((equipesData || []).map(row => ({
         id: row.id,
         nome: row.nome,
+        numero: row.numero,
         lider: row.lider,
         vice: row.vice,
         cor: row.cor,
@@ -500,6 +505,7 @@ export function useSupabaseSorteios() {
       return {
         id: selected.id,
         nome: selected.nome,
+        numero: selected.numero,
         lider: selected.lider,
         vice: selected.vice,
         cor: selected.cor,
@@ -561,6 +567,7 @@ export function useSupabasePontuacoes() {
         pontos: row.pontos,
         observacao: row.observacao || undefined,
         dataHora: row.data_hora,
+        numeroInscrito: row.numero_inscrito ?? undefined,
       })));
     } catch (error) {
       console.error('Erro ao carregar pontuações:', error);
@@ -573,7 +580,7 @@ export function useSupabasePontuacoes() {
     loadPontuacoes();
   }, [loadPontuacoes]);
 
-  const adicionarPontuacao = async (equipeId: string, pontos: number, gincanaId: string, observacao?: string) => {
+  const adicionarPontuacao = async (equipeId: string, pontos: number, gincanaId: string, observacao?: string, numeroInscrito?: number) => {
     if (!user) return;
 
     const { error } = await supabase
@@ -584,6 +591,7 @@ export function useSupabasePontuacoes() {
         gincana_id: gincanaId,
         pontos,
         observacao: observacao || null,
+        numero_inscrito: numeroInscrito ?? null,
       });
 
     if (error) throw error;

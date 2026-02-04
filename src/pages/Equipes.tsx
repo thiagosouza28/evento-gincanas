@@ -25,12 +25,24 @@ const Equipes = () => {
   const [selectedEquipe, setSelectedEquipe] = useState<Equipe | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
-  const [editForm, setEditForm] = useState({ nome: '', lider: '', vice: '', corPulseira: '', imagemUrl: '' });
-  const [createForm, setCreateForm] = useState({ nome: '', lider: '', vice: '', corPulseira: '', imagemUrl: '' });
+  const [editForm, setEditForm] = useState({ nome: '', numero: '', lider: '', vice: '', corPulseira: '', imagemUrl: '' });
+  const [createForm, setCreateForm] = useState({ nome: '', numero: '', lider: '', vice: '', corPulseira: '', imagemUrl: '' });
   const [uploadingCreate, setUploadingCreate] = useState(false);
   const [uploadingEdit, setUploadingEdit] = useState(false);
   const createFileInputRef = useRef<HTMLInputElement>(null);
   const editFileInputRef = useRef<HTMLInputElement>(null);
+
+  const getNextTeamNumber = () => {
+    const used = new Set(equipes.map((e) => e.numero).filter((n) => Number.isFinite(n)));
+    let numero = 1;
+    while (used.has(numero)) {
+      numero += 1;
+    }
+    return numero;
+  };
+
+  const isNumeroDuplicado = (numero: number, equipeId?: string) =>
+    equipes.some((e) => e.numero === numero && e.id !== equipeId);
 
   const uploadImage = async (file: File): Promise<string | null> => {
     try {
@@ -110,6 +122,7 @@ const Equipes = () => {
     setSelectedEquipe(equipe);
     setEditForm({ 
       nome: equipe.nome, 
+      numero: String(equipe.numero),
       lider: equipe.lider, 
       vice: equipe.vice, 
       corPulseira: equipe.corPulseira || '',
@@ -120,10 +133,21 @@ const Equipes = () => {
 
   const handleSave = async () => {
     if (!selectedEquipe) return;
+
+    const numero = Number(editForm.numero);
+    if (!Number.isInteger(numero) || numero <= 0) {
+      toast.error('O numero da equipe e obrigatorio');
+      return;
+    }
+    if (isNumeroDuplicado(numero, selectedEquipe.id)) {
+      toast.error('Ja existe uma equipe com este numero');
+      return;
+    }
     
     const updatedEquipe: Equipe = {
       ...selectedEquipe,
       nome: editForm.nome,
+      numero,
       lider: editForm.lider,
       vice: editForm.vice,
       corPulseira: editForm.corPulseira || undefined,
@@ -147,6 +171,7 @@ const Equipes = () => {
     const newEquipe: Equipe = {
       id: createId(),
       nome: createForm.nome.trim(),
+      numero,
       lider: createForm.lider.trim(),
       vice: createForm.vice.trim(),
       cor: (equipes.length % 8) + 1,
@@ -159,7 +184,7 @@ const Equipes = () => {
     await saveEquipe(newEquipe);
     reload();
     setIsCreating(false);
-    setCreateForm({ nome: '', lider: '', vice: '', corPulseira: '', imagemUrl: '' });
+    setCreateForm({ nome: '', numero: '', lider: '', vice: '', corPulseira: '', imagemUrl: '' });
     toast.success('Equipe criada com sucesso!');
   };
 
@@ -213,7 +238,15 @@ const Equipes = () => {
               <FileDown className="h-4 w-4" />
               Baixar PDF
             </Button>
-            <Dialog open={isCreating} onOpenChange={setIsCreating}>
+            <Dialog
+              open={isCreating}
+              onOpenChange={(open) => {
+                setIsCreating(open);
+                if (open) {
+                  setCreateForm({ nome: '', numero: String(getNextTeamNumber()), lider: '', vice: '', corPulseira: '', imagemUrl: '' });
+                }
+              }}
+            >
               <DialogTrigger asChild>
                 <Button className="gap-2">
                   <Plus className="h-4 w-4" />
@@ -233,6 +266,17 @@ const Equipes = () => {
                       value={createForm.nome}
                       onChange={(e) => setCreateForm({ ...createForm, nome: e.target.value })}
                       placeholder="Ex: Equipe Azul"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="create-numero">Numero da Equipe *</Label>
+                    <Input
+                      id="create-numero"
+                      type="number"
+                      min="1"
+                      value={createForm.numero}
+                      onChange={(e) => setCreateForm({ ...createForm, numero: e.target.value })}
+                      placeholder="Ex: 1"
                     />
                   </div>
                   <div>
@@ -373,13 +417,16 @@ const Equipes = () => {
                     </Avatar>
                     
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <CardTitle 
-                          className="text-lg truncate"
-                          style={{ color: equipe.corPulseira || `hsl(var(--team-${equipe.cor}))` }}
-                        >
-                          {equipe.nome}
-                        </CardTitle>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <CardTitle 
+                            className="text-lg truncate"
+                            style={{ color: equipe.corPulseira || `hsl(var(--team-${equipe.cor}))` }}
+                          >
+                            {equipe.nome}
+                          </CardTitle>
+                          <p className="text-xs text-muted-foreground">Num. {equipe.numero}</p>
+                        </div>
                         <div className="flex gap-1 flex-shrink-0">
                           <Button
                             variant="ghost"
@@ -524,6 +571,16 @@ const Equipes = () => {
                   id="nome"
                   value={editForm.nome}
                   onChange={(e) => setEditForm({ ...editForm, nome: e.target.value })}
+                />
+              </div>
+              <div>
+                <Label htmlFor="edit-numero">Numero da Equipe *</Label>
+                <Input
+                  id="edit-numero"
+                  type="number"
+                  min="1"
+                  value={editForm.numero}
+                  onChange={(e) => setEditForm({ ...editForm, numero: e.target.value })}
                 />
               </div>
               <div>

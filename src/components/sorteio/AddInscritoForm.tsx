@@ -45,6 +45,7 @@ export function AddInscritoForm({ onSuccess }: AddInscritoFormProps) {
         distrito: formData.distrito.trim() || 'Não informado',
         statusPagamento: 'MANUAL',
         isManual: true,
+        numeroPulseira: String(nextNumber),
       };
 
       await saveInscrito(novoInscrito);
