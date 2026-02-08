@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -7,9 +7,12 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useEquipesComParticipantes, usePontuacoes, useGincanas, useInscritos, useSorteios, useSystemConfig } from '@/hooks/useDatabase';
-import { Plus, Minus, History, Loader2, Trophy, Users, ListChecks } from 'lucide-react';
+import { Plus, Minus, History, Loader2, Trophy, Users, ListChecks, FileDown } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
+import { generatePontuacaoEquipePDF, generatePontuacaoGeralPDF } from '@/lib/pdfGenerator';
+import * as torneioService from '@/lib/torneioService';
+import type { Torneio } from '@/types/torneio';
 import type { Inscrito, EquipeComParticipantes } from '@/types';
 
 function normalizeText(value: string) {
@@ -127,6 +130,8 @@ const Pontuacao = () => {
   const { inscritos, loading: inscritosLoading } = useInscritos();
   const { sorteios, loading: sorteiosLoading } = useSorteios();
   const { config: systemConfig, loading: systemLoading } = useSystemConfig();
+  const [torneios, setTorneios] = useState<Torneio[]>([]);
+  const [torneiosLoading, setTorneiosLoading] = useState(true);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [searchError, setSearchError] = useState('');
@@ -149,7 +154,30 @@ const Pontuacao = () => {
     gincanasLoading ||
     inscritosLoading ||
     sorteiosLoading ||
-    systemLoading;
+    systemLoading ||
+    torneiosLoading;
+
+  useEffect(() => {
+    let active = true;
+    const loadTorneios = async () => {
+      try {
+        const data = await torneioService.getAllTorneios();
+        if (active) {
+          setTorneios(data);
+        }
+      } catch (error) {
+        console.error('Erro ao carregar torneios:', error);
+      } finally {
+        if (active) {
+          setTorneiosLoading(false);
+        }
+      }
+    };
+    loadTorneios();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const resetForm = () => {
     setSearchTerm('');
@@ -288,6 +316,18 @@ const Pontuacao = () => {
 
   const totalPontos = pontuacoes.reduce((sum, p) => sum + p.pontos, 0);
 
+  const handleExportPontuacaoGeral = async () => {
+    toast.info('Gerando PDF geral...');
+    await generatePontuacaoGeralPDF(equipes, gincanas, torneios, pontuacoes);
+    toast.success('PDF geral gerado com sucesso.');
+  };
+
+  const handleExportPontuacaoEquipe = async (equipe: EquipeComParticipantes) => {
+    toast.info(`Gerando PDF da equipe ${equipe.nome}...`);
+    await generatePontuacaoEquipePDF(equipe, gincanas, torneios, pontuacoes);
+    toast.success('PDF da equipe gerado com sucesso.');
+  };
+
   return (
     <MainLayout>
       <div className="space-y-8">
@@ -297,14 +337,25 @@ const Pontuacao = () => {
             <h1 className="text-display-sm text-foreground">Pontuacao</h1>
             <p className="text-muted-foreground">Pontuacao geral das equipes</p>
           </div>
-          <Button
-            className="gap-2"
-            onClick={() => setIsDialogOpen(true)}
-            disabled={!hasMinTeams}
-          >
-            <Plus className="h-4 w-4" />
-            Lancar Pontos
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={handleExportPontuacaoGeral}
+              disabled={equipes.length === 0}
+            >
+              <FileDown className="h-4 w-4" />
+              PDF Geral
+            </Button>
+            <Button
+              className="gap-2"
+              onClick={() => setIsDialogOpen(true)}
+              disabled={!hasMinTeams}
+            >
+              <Plus className="h-4 w-4" />
+              Lancar Pontos
+            </Button>
+          </div>
         </div>
 
         {!hasMinTeams && (
@@ -378,6 +429,15 @@ const Pontuacao = () => {
                   className="glass overflow-hidden relative transition-all hover:-translate-y-0.5 hover:shadow-lg"
                   style={{ borderColor: `hsl(var(--team-${equipe.cor}))` }}
                 >
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="absolute left-3 top-3 h-8 w-8"
+                    onClick={() => handleExportPontuacaoEquipe(equipe)}
+                    title={`PDF da equipe ${equipe.nome}`}
+                  >
+                    <FileDown className="h-4 w-4" />
+                  </Button>
                   <div
                     className="h-2"
                     style={{ backgroundColor: `hsl(var(--team-${equipe.cor}))` }}

@@ -69,6 +69,8 @@ export interface ApiConfig {
   baseUrl: string;
   token: string;
   lastSync?: string;
+  eventId?: string;
+  syncStatuses?: Array<'PAID' | 'PENDING' | 'CANCELLED'>;
 }
 
 export interface SystemConfig {

@@ -34,7 +34,54 @@ interface ApiResponse {
   inscritos: ApiInscrito[];
 }
 
-export async function syncInscritos(): Promise<{ success: boolean; count: number; error?: string }> {
+const DEFAULT_SYNC_STATUSES: Array<'PAID' | 'PENDING' | 'CANCELLED'> = ['PAID', 'PENDING', 'CANCELLED'];
+
+async function callApiProxy(body?: Record<string, unknown>) {
+  let lastError: Error | null = null;
+  try {
+    const { data, error } = await supabase.functions.invoke('api-proxy', {
+      headers: await getFunctionHeaders(),
+      body,
+    });
+    if (!error) {
+      return data;
+    }
+    lastError = new Error(error.message);
+  } catch (error) {
+    lastError = error instanceof Error ? error : new Error('Erro ao chamar api-proxy');
+  }
+
+  const baseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+  try {
+    const response = await fetch(`${baseUrl}/functions/v1/api-proxy`, {
+      method: 'POST',
+      headers: {
+        apikey: anonKey,
+        Authorization: `Bearer ${anonKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || `Erro na API: ${response.status}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    if (lastError) {
+      throw lastError;
+    }
+    throw error instanceof Error ? error : new Error('Erro ao chamar api-proxy');
+  }
+}
+
+export async function syncInscritos(
+  eventId?: string,
+  syncStatuses?: Array<'PAID' | 'PENDING' | 'CANCELLED'>
+): Promise<{ success: boolean; count: number; error?: string }> {
   try {
     console.log('Iniciando sincronização com banco MySQL...');
     
@@ -45,13 +92,19 @@ export async function syncInscritos(): Promise<{ success: boolean; count: number
     }
     
     // Usar Edge Function como proxy para conectar ao MySQL
-    const { data, error } = await supabase.functions.invoke('api-proxy', {
-      headers: await getFunctionHeaders(),
-    });
+    const storedConfig = localStorage.getItem('apiConfig');
+    const parsedConfig = storedConfig ? JSON.parse(storedConfig) : {};
+    const configEventId = parsedConfig.eventId as string | undefined;
+    const configStatuses = parsedConfig.syncStatuses as Array<'PAID' | 'PENDING' | 'CANCELLED'> | undefined;
+    const effectiveEventId = eventId || configEventId || undefined;
+    const effectiveStatuses = (syncStatuses && syncStatuses.length > 0)
+      ? syncStatuses
+      : (configStatuses && configStatuses.length > 0 ? configStatuses : DEFAULT_SYNC_STATUSES);
 
-    if (error) {
-      throw new Error(`Erro na API: ${error.message}`);
-    }
+    const data = await callApiProxy({
+      eventId: effectiveEventId,
+      statuses: effectiveStatuses,
+    });
 
     console.log('Resposta recebida:', data);
 
@@ -147,6 +200,8 @@ export async function syncInscritos(): Promise<{ success: boolean; count: number
       baseUrl: 'mysql-database',
       token: '',
       lastSync: new Date().toISOString(),
+      eventId: effectiveEventId,
+      syncStatuses: effectiveStatuses,
     }));
 
     console.log(`Sincronização concluída: ${allInscritos.length} inscritos salvos`);
@@ -164,13 +219,7 @@ export async function syncInscritos(): Promise<{ success: boolean; count: number
 
 export async function testApiConnection(): Promise<{ success: boolean; error?: string }> {
   try {
-    const { data, error } = await supabase.functions.invoke('api-proxy', {
-      headers: await getFunctionHeaders(),
-    });
-
-    if (error) {
-      throw new Error(`Erro: ${error.message}`);
-    }
+    await callApiProxy({ action: 'list-tables' });
 
     return { success: true };
   } catch (error) {
@@ -179,4 +228,28 @@ export async function testApiConnection(): Promise<{ success: boolean; error?: s
       error: error instanceof Error ? error.message : 'Erro de conexão' 
     };
   }
+}
+
+export async function fetchEventos(): Promise<Array<{ id: string; name: string }>> {
+  const normalizeEvents = (payload: unknown) => {
+    const response = payload as { events?: Array<{ id: string | number; name?: string | null }> };
+    const events = Array.isArray(response?.events) ? response.events : [];
+    return events.map((event) => ({
+      id: String(event.id),
+      name: event.name ? String(event.name) : String(event.id),
+    }));
+  };
+
+  try {
+    const data = await callApiProxy({ action: 'events' });
+    const list = normalizeEvents(data);
+    if (list.length > 0) {
+      return list;
+    }
+  } catch (error) {
+    console.error('Erro ao buscar eventos:', error);
+    return [];
+  }
+
+  return [];
 }

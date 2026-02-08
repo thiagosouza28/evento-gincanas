@@ -39,12 +39,19 @@ const SorteioPopup = () => {
   }, []);
 
   // Broadcast state para página pública
-  const broadcastState = useCallback((inscrito: Inscrito | null, equipe: Equipe | null, sorteandoState: boolean, showResultState: boolean) => {
+  const broadcastState = useCallback((
+    inscrito: Inscrito | null,
+    equipe: Equipe | null,
+    sorteandoState: boolean,
+    showResultState: boolean,
+    numeroDigitado?: string
+  ) => {
     const data = {
       inscrito,
       equipe,
       sorteando: sorteandoState,
       showResult: showResultState,
+      numeroDigitado,
     };
     broadcastChannelRef.current?.postMessage(data);
   }, []);
@@ -72,7 +79,7 @@ const SorteioPopup = () => {
     setJaSorteado(false);
     setEquipeDestino(null);
     setShowResult(false);
-    broadcastState(null, null, false, false);
+    broadcastState(null, null, false, false, numero);
 
     const num = parseInt(numero);
     if (isNaN(num)) {
@@ -163,7 +170,13 @@ const SorteioPopup = () => {
     setEquipeDestino(null);
     setError(null);
     setShowResult(false);
-    broadcastState(null, null, false, false);
+    broadcastState(null, null, false, false, '');
+  };
+
+  const handleNumeroChange = (value: string) => {
+    const sanitized = value.replace(/\D/g, '');
+    setNumero(sanitized);
+    broadcastState(null, null, false, false, sanitized);
   };
 
   if (inscritosLoading) {
@@ -220,7 +233,7 @@ const SorteioPopup = () => {
                 type="number"
                 placeholder="Número do inscrito"
                 value={numero}
-                onChange={(e) => setNumero(e.target.value)}
+                onChange={(e) => handleNumeroChange(e.target.value)}
                 onKeyDown={handleKeyDown}
                 className="text-center text-3xl h-16"
                 autoFocus

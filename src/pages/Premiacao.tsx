@@ -19,6 +19,8 @@ import { ptBR } from 'date-fns/locale';
 import type { Inscrito, Equipe } from '@/types';
 
 const PREMIACAO_CHANNEL = 'premiacao-broadcast-channel';
+const SESSION_PARTICIPANTES_KEY = 'premiacao-session-participantes';
+const SESSION_EQUIPES_KEY = 'premiacao-session-equipes';
 
 interface SorteioResult {
   type: 'participante' | 'equipe';
@@ -33,8 +35,28 @@ export default function Premiacao() {
   const { historico, adicionarPremiacao, limparHistorico, removerPremiacao } = usePremiacaoHistorico();
   
   const [permitirRepeticao, setPermitirRepeticao] = useState(false);
-  const [participantesSorteados, setParticipantesSorteados] = useState<number[]>([]);
-  const [equipesSorteadas, setEquipesSorteadas] = useState<string[]>([]);
+  const [participantesSorteados, setParticipantesSorteados] = useState<number[]>(() => {
+    const stored = localStorage.getItem(SESSION_PARTICIPANTES_KEY);
+    if (!stored) return [];
+    try {
+      const parsed = JSON.parse(stored);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter((value) => typeof value === 'number' && Number.isFinite(value));
+    } catch {
+      return [];
+    }
+  });
+  const [equipesSorteadas, setEquipesSorteadas] = useState<string[]>(() => {
+    const stored = localStorage.getItem(SESSION_EQUIPES_KEY);
+    if (!stored) return [];
+    try {
+      const parsed = JSON.parse(stored);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter((value) => typeof value === 'string');
+    } catch {
+      return [];
+    }
+  });
   const [resultado, setResultado] = useState<SorteioResult | null>(null);
   const [isAnimating, setIsAnimating] = useState(false);
   const [descricaoPremio, setDescricaoPremio] = useState('');
@@ -51,6 +73,14 @@ export default function Premiacao() {
       broadcastChannelRef.current?.close();
     };
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem(SESSION_PARTICIPANTES_KEY, JSON.stringify(participantesSorteados));
+  }, [participantesSorteados]);
+
+  useEffect(() => {
+    localStorage.setItem(SESSION_EQUIPES_KEY, JSON.stringify(equipesSorteadas));
+  }, [equipesSorteadas]);
 
   const broadcast = (data: {
     type: 'participante' | 'equipe' | null;
@@ -96,9 +126,7 @@ export default function Premiacao() {
     setTimeout(() => {
       const sorteado = participantesDisponiveis[Math.floor(Math.random() * participantesDisponiveis.length)];
       
-      if (!permitirRepeticao) {
-        setParticipantesSorteados(prev => [...prev, sorteado.numero]);
-      }
+      setParticipantesSorteados(prev => [sorteado.numero, ...prev]);
       
       const result: SorteioResult = { type: 'participante', participante: sorteado, descricaoPremio: descricaoPremioTrimmed };
       setResultado(result);
@@ -150,9 +178,7 @@ export default function Premiacao() {
     setTimeout(() => {
       const sorteada = equipesDisponiveis[Math.floor(Math.random() * equipesDisponiveis.length)];
       
-      if (!permitirRepeticao) {
-        setEquipesSorteadas(prev => [...prev, sorteada.id]);
-      }
+      setEquipesSorteadas(prev => [sorteada.id, ...prev]);
       
       const result: SorteioResult = { type: 'equipe', equipe: sorteada, descricaoPremio: descricaoPremioTrimmed };
       setResultado(result);
@@ -184,6 +210,8 @@ export default function Premiacao() {
     setParticipantesSorteados([]);
     setEquipesSorteadas([]);
     setResultado(null);
+    localStorage.removeItem(SESSION_PARTICIPANTES_KEY);
+    localStorage.removeItem(SESSION_EQUIPES_KEY);
     broadcast({
       type: null,
       descricaoPremio: '',
@@ -203,7 +231,9 @@ export default function Premiacao() {
   };
 
   const abrirTelaPublica = () => {
-    window.open('/publico-premiacao', '_blank');
+    const width = window.screen.width;
+    const height = window.screen.height;
+    window.open('/publico-premiacao', 'premiacao-publico', `width=${width},height=${height},fullscreen=yes`);
   };
 
   return (
@@ -435,20 +465,32 @@ export default function Premiacao() {
                       Nenhum participante sorteado ainda
                     </p>
                   ) : (
-                    <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                    <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
                       {participantesSorteados.map((numero, index) => {
                         const participante = inscritos.get(numero);
+                        const igreja = participante?.igreja || 'Igreja nao informada';
+                        const distrito = participante?.distrito ? ` - ${participante.distrito}` : '';
                         return (
                           <div 
                             key={`${numero}-${index}`}
-                            className="flex items-center gap-3 p-3 rounded-lg bg-secondary/50"
+                            className="flex items-center gap-3 rounded-lg border border-border/70 bg-card/40 p-3"
                           >
-                            <span className="text-lg font-bold text-primary w-8">
-                              {index + 1}º
-                            </span>
-                            <div>
-                              <p className="font-medium">{participante?.nome || `Nº ${numero}`}</p>
-                              <p className="text-xs text-muted-foreground">Nº {numero}</p>
+                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary">
+                              {index + 1}
+                            </div>
+                            <img
+                              src={participante?.fotoUrl || '/placeholder.svg'}
+                              alt={participante?.nome || `Nº ${numero}`}
+                              className="h-11 w-11 rounded-full object-cover border-2 border-primary/30"
+                              onError={(e) => {
+                                e.currentTarget.src = '/placeholder.svg';
+                              }}
+                            />
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate font-semibold">{participante?.nome || `Nº ${numero}`}</p>
+                              <p className="text-xs text-muted-foreground truncate">
+                                Nº {numero} • {igreja}{distrito}
+                              </p>
                             </div>
                           </div>
                         );
@@ -518,24 +560,30 @@ export default function Premiacao() {
                       Nenhuma equipe sorteada ainda
                     </p>
                   ) : (
-                    <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                    <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
                       {equipesSorteadas.map((equipeId, index) => {
                         const equipe = equipes.find(e => e.id === equipeId);
-                        const corEquipe = equipe?.corPulseira || '#888888';
+                        const corEquipe = equipe?.corPulseira || (equipe ? `hsl(var(--team-${equipe.cor}))` : '#888888');
                         return (
                           <div 
                             key={`${equipeId}-${index}`}
-                            className="flex items-center gap-3 p-3 rounded-lg"
-                            style={{ backgroundColor: `${corEquipe}20` }}
+                            className="flex items-center gap-3 rounded-lg border border-border/70 bg-card/40 p-3"
                           >
-                            <span className="text-lg font-bold text-primary w-8">
-                              {index + 1}º
-                            </span>
+                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/15 text-xs font-semibold text-primary">
+                              {index + 1}
+                            </div>
                             <div 
-                              className="w-4 h-4 rounded-full"
-                              style={{ backgroundColor: corEquipe }}
+                              className="h-10 w-10 rounded-full border-2"
+                              style={{ backgroundColor: corEquipe, borderColor: corEquipe }}
                             />
-                            <p className="font-medium">{equipe?.nome}</p>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate font-semibold" style={{ color: corEquipe }}>
+                                {equipe?.nome || 'Equipe'}
+                              </p>
+                              <p className="text-xs text-muted-foreground truncate">
+                                Nº {equipe?.numero ?? '--'}{equipe?.lider ? ` • Líder: ${equipe.lider}` : ''}
+                              </p>
+                            </div>
                           </div>
                         );
                       })}

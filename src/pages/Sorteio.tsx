@@ -40,12 +40,19 @@ const Sorteio = () => {
   }, []);
 
   // Função para enviar broadcast
-  const broadcastState = useCallback((inscrito: Inscrito | null, equipe: Equipe | null, sorteandoState: boolean, showResultState: boolean) => {
+  const broadcastState = useCallback((
+    inscrito: Inscrito | null,
+    equipe: Equipe | null,
+    sorteandoState: boolean,
+    showResultState: boolean,
+    numeroDigitado?: string
+  ) => {
     const data = {
       inscrito,
       equipe,
       sorteando: sorteandoState,
       showResult: showResultState,
+      numeroDigitado,
     };
     broadcastChannelRef.current?.postMessage(data);
   }, []);
@@ -88,6 +95,12 @@ const Sorteio = () => {
     if (e.key === 'Enter') {
       buscarInscrito();
     }
+  };
+
+  const handleOpenPublico = () => {
+    const width = window.screen.width;
+    const height = window.screen.height;
+    window.open('/publico', 'sorteio-publico', `width=${width},height=${height},fullscreen=yes`);
   };
 
   const handleSortear = async () => {
@@ -156,7 +169,13 @@ const Sorteio = () => {
     setShowResult(false);
     setShowPopup(false);
     // Broadcast reset
-    broadcastState(null, null, false, false);
+    broadcastState(null, null, false, false, '');
+  };
+
+  const handleNumeroChange = (value: string) => {
+    const sanitized = value.replace(/\D/g, '');
+    setNumero(sanitized);
+    broadcastState(null, null, false, false, sanitized);
   };
 
   const handleClosePopup = () => {
@@ -196,7 +215,7 @@ const Sorteio = () => {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => window.open('/publico', '_blank')}
+              onClick={handleOpenPublico}
               className="gap-2"
             >
               <ExternalLink className="h-4 w-4" />
@@ -218,7 +237,7 @@ const Sorteio = () => {
                 pattern="[0-9]*"
                 placeholder="Digite o número da sua inscrição/pulseira"
                 value={numero}
-                onChange={(e) => setNumero(e.target.value.replace(/\D/g, ''))}
+                onChange={(e) => handleNumeroChange(e.target.value)}
                 onKeyDown={handleKeyDown}
                 className="text-center text-6xl leading-none h-16 tracking-widest placeholder:transition-opacity focus:placeholder-transparent"
                 autoFocus

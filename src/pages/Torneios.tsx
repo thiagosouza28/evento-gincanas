@@ -38,11 +38,13 @@ export default function Torneios() {
   
   // Torneio selecionado para visualização
   const [selectedTorneio, setSelectedTorneio] = useState<Torneio | null>(null);
+  const sorteioEmAndamento = Boolean(selectedTorneio) && !torneioService.isSorteioQuartasCompleto(confrontos);
   
   // Estado do sorteio passo a passo
-  const [sorteioAtivo, setSorteioAtivo] = useState(false);
   const [ultimoSorteado, setUltimoSorteado] = useState<string | null>(null);
   const [sorteando, setSorteando] = useState(false);
+
+  const torneioSelecionadoIdKey = 'torneios-selected-id';
   
   // BroadcastChannel para tela pública
   const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
@@ -125,6 +127,16 @@ export default function Torneios() {
       setGincanas(gincanasData);
       setEquipes(equipesData);
       setTorneios(torneiosData);
+
+      const savedId = localStorage.getItem(torneioSelecionadoIdKey);
+      const savedTorneio = savedId ? torneiosData.find(t => t.id === savedId) : null;
+      if (savedTorneio) {
+        setSelectedTorneio(savedTorneio);
+        const conf = await torneioService.getConfrontosByTorneio(savedTorneio.id);
+        setConfrontos(conf);
+      } else if (savedId) {
+        localStorage.removeItem(torneioSelecionadoIdKey);
+      }
     } catch (error) {
       toast({ title: 'Erro ao carregar dados', variant: 'destructive' });
     } finally {
@@ -166,6 +178,7 @@ export default function Torneios() {
   
   async function handleSelectTorneio(torneio: Torneio) {
     setSelectedTorneio(torneio);
+    localStorage.setItem(torneioSelecionadoIdKey, torneio.id);
     const conf = await torneioService.getConfrontosByTorneio(torneio.id);
     setConfrontos(conf);
   }
@@ -182,7 +195,6 @@ export default function Torneios() {
     try {
       const novosConfrontos = await torneioService.iniciarSorteioPasso(selectedTorneio.id);
       setConfrontos(novosConfrontos);
-      setSorteioAtivo(true);
       setUltimoSorteado(null);
       
       // Atualizar status do torneio na lista
@@ -258,7 +270,6 @@ export default function Torneios() {
         
         // Verificar se sorteio está completo
         if (torneioService.isSorteioQuartasCompleto(updated)) {
-          setSorteioAtivo(false);
           toast({ title: 'Sorteio completo! Todos os confrontos definidos.' });
           
           // Broadcast: sorteio completo com resumo (aguarda a animação final)
@@ -275,7 +286,6 @@ export default function Torneios() {
           toast({ title: `Sorteado: ${equipe?.nome || 'Equipe'}` });
         }
       } else {
-        setSorteioAtivo(false);
         toast({ title: 'Sorteio completo!' });
         
         // Broadcast: sorteio completo
@@ -451,6 +461,9 @@ export default function Torneios() {
       if (selectedTorneio?.id === id) {
         setSelectedTorneio(null);
         setConfrontos([]);
+      }
+      if (localStorage.getItem(torneioSelecionadoIdKey) === id) {
+        localStorage.removeItem(torneioSelecionadoIdKey);
       }
       toast({ title: 'Torneio excluído' });
     } catch (error) {
@@ -658,7 +671,7 @@ export default function Torneios() {
                   </Button>
                 )}
                 
-                {selectedTorneio && sorteioAtivo && !torneioService.isSorteioQuartasCompleto(confrontos) && (
+                {sorteioEmAndamento && (
                   <div className="flex items-center gap-3">
                     <div className="text-sm text-muted-foreground">
                       Posição {torneioService.getProximoNumeroSorteio(confrontos)} de 8

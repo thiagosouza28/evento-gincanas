@@ -11,6 +11,7 @@ import Inscritos from "./pages/Inscritos";
 import SorteioPopup from "./pages/SorteioPopup";
 import PublicoSorteio from "./pages/PublicoSorteio";
 import PublicoTorneio from "./pages/PublicoTorneio";
+import PublicoPodio from "./pages/PublicoPodio";
 import Equipes from "./pages/Equipes";
 import Gincanas from "./pages/Gincanas";
 import Pontuacao from "./pages/Pontuacao";
@@ -38,6 +39,7 @@ const App = () => (
             <Route path="/publico" element={<PublicoSorteio />} />
             <Route path="/publico-torneio" element={<PublicoTorneio />} />
             <Route path="/publico-premiacao" element={<PublicoPremiacao />} />
+            <Route path="/publico-podio" element={<PublicoPodio />} />
             <Route path="/popup" element={<SorteioPopup />} />
             
             {/* Protected routes */}

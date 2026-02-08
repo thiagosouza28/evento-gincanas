@@ -1,6 +1,6 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
-import { useGincanas, useEquipesComParticipantes } from '@/hooks/useDatabase';
+import { useGincanas, useEquipesComParticipantes, useInscritos } from '@/hooks/useDatabase';
 import { Loader2, CheckCircle2, Users, Wifi, WifiOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Inscrito, Equipe } from '@/types';
@@ -13,6 +13,7 @@ interface SorteioData {
   equipe: Equipe | null;
   sorteando: boolean;
   showResult: boolean;
+  numeroDigitado?: string;
 }
 
 const PublicoSorteio = () => {
@@ -21,11 +22,13 @@ const PublicoSorteio = () => {
     equipe: null,
     sorteando: false,
     showResult: false,
+    numeroDigitado: '',
   });
   const [isConnected, setIsConnected] = useState(false);
   const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
 
   const { gincanaAtiva } = useGincanas();
+  const { inscritos } = useInscritos();
   const { equipes, reload: reloadEquipes } = useEquipesComParticipantes(gincanaAtiva?.id);
 
   // Escuta eventos via BroadcastChannel
@@ -54,6 +57,13 @@ const PublicoSorteio = () => {
   }, [reloadEquipes]);
 
   const { inscrito, equipe, sorteando, showResult } = sorteioData;
+  const numeroDigitado = sorteioData.numeroDigitado?.trim() ?? '';
+  const inscritoPreview = useMemo(() => {
+    if (!numeroDigitado) return null;
+    const numero = Number(numeroDigitado);
+    if (!Number.isFinite(numero)) return null;
+    return inscritos.get(numero) ?? null;
+  }, [inscritos, numeroDigitado]);
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4 pb-24">
@@ -68,26 +78,62 @@ const PublicoSorteio = () => {
       {/* Header */}
       <div className="text-center mb-4">
         <h1 className="text-display-sm font-bold text-foreground">Sorteio de Equipes</h1>
-        <p className="text-lg text-muted-foreground mt-1">
-          {gincanaAtiva ? gincanaAtiva.nome : 'Aguardando...'}
-        </p>
       </div>
 
       {/* Aguardando Sorteio */}
       <AnimatePresence mode="wait">
-        {!inscrito && !sorteando && (
-          <motion.div
-            key="waiting"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="text-center"
-          >
-            <Loader2 className="mx-auto h-16 w-16 animate-spin text-primary/30" />
-            <p className="mt-4 text-lg text-muted-foreground">
-              Aguardando próximo participante...
-            </p>
-          </motion.div>
+        {!inscrito && !sorteando && !showResult && (
+          numeroDigitado ? (
+            <motion.div
+              key="digitando"
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              className="w-full max-w-xl"
+            >
+              <Card className="overflow-hidden">
+                <div className="h-2 bg-primary" />
+                <CardContent className="p-8 text-center">
+                  <p className="text-xs uppercase tracking-widest text-muted-foreground">Digitando</p>
+                  <p className="mt-3 text-display-md font-bold text-primary">{numeroDigitado}</p>
+                  {inscritoPreview ? (
+                    <div className="mt-4 flex flex-col items-center gap-3">
+                      <img
+                        src={inscritoPreview.fotoUrl || '/placeholder.svg'}
+                        alt={inscritoPreview.nome}
+                        className="h-20 w-20 rounded-2xl object-cover border-2 border-primary/40"
+                        onError={(e) => {
+                          e.currentTarget.src = '/placeholder.svg';
+                        }}
+                      />
+                      <div className="space-y-2 text-center">
+                        <p className="text-2xl font-semibold text-foreground">{inscritoPreview.nome}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {inscritoPreview.igreja} {inscritoPreview.distrito ? `- ${inscritoPreview.distrito}` : ''}
+                        </p>
+                        <p className="text-sm text-muted-foreground">{inscritoPreview.idade} anos</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-sm text-muted-foreground">Aguardando confirmacao</p>
+                  )}
+                </CardContent>
+              </Card>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="waiting"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="text-center"
+            >
+              <Loader2 className="mx-auto h-16 w-16 animate-spin text-primary/30" />
+              <p className="mt-4 text-lg text-muted-foreground">
+                Aguardando próximo participante...
+              </p>
+            </motion.div>
+          )
         )}
 
         {/* Animação do Sorteio */}

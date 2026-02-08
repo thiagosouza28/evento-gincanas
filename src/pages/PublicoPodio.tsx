@@ -1,66 +1,39 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { motion } from 'framer-motion';
+import { Loader2, Trophy } from 'lucide-react';
 import { useEquipesComParticipantes } from '@/hooks/useDatabase';
-import { Trophy, Maximize2, Minimize2, Loader2, FileDown, Eye, EyeOff, ExternalLink } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Button } from '@/components/ui/button';
-import { MainLayout } from '@/components/layout/MainLayout';
-import { generatePodioPDF } from '@/lib/pdfGenerator';
-import { toast } from 'sonner';
 
-const Podio = () => {
-  const { equipes, loading: equipesLoading } = useEquipesComParticipantes();
-  const [isFullscreen, setIsFullscreen] = useState(false);
+const PublicoPodio = () => {
+  const { equipes, loading } = useEquipesComParticipantes();
   const [showPoints, setShowPoints] = useState(() => {
     const stored = localStorage.getItem('podio-show-points');
     return stored ? stored === 'true' : true;
   });
-
-  const loading = equipesLoading;
+  const ranking = useMemo(
+    () => [...equipes].sort((a, b) => b.pontuacaoTotal - a.pontuacaoTotal),
+    [equipes]
+  );
 
   useEffect(() => {
-    localStorage.setItem('podio-show-points', String(showPoints));
-  }, [showPoints]);
-
-  const toggleFullscreen = () => {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen();
-      setIsFullscreen(true);
-    } else {
-      document.exitFullscreen();
-      setIsFullscreen(false);
-    }
-  };
-
-  const handleExportPDF = async () => {
-    try {
-      await generatePodioPDF(equipes, 'Pontuação Geral');
-      toast.success('PDF do pódio gerado com sucesso!');
-    } catch (error) {
-      toast.error('Erro ao gerar PDF do pódio');
-    }
-  };
-
-  const handleOpenPublico = () => {
-    const width = window.screen.width;
-    const height = window.screen.height;
-    window.open('/publico-podio', 'podio-publico', `width=${width},height=${height},fullscreen=yes`);
-  };
-
-  // Ordenar por pontuação
-  const ranking = [...equipes].sort((a, b) => b.pontuacaoTotal - a.pontuacaoTotal);
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === 'podio-show-points') {
+        setShowPoints(event.newValue === 'true');
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
 
   if (loading) {
     return (
-      <MainLayout>
-        <div className="flex h-[80vh] items-center justify-center">
-          <Loader2 className="h-12 w-12 animate-spin text-primary" />
-        </div>
-      </MainLayout>
+      <div className="flex h-screen items-center justify-center bg-background">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+      </div>
     );
   }
 
-  const PodiumContent = () => (
-    <div className={`min-h-screen bg-background p-8 ${isFullscreen ? 'pt-16' : ''}`}>
+  return (
+    <div className="min-h-screen bg-background p-8">
       {/* Header */}
       <div className="mb-8 text-center">
         <motion.div
@@ -85,12 +58,19 @@ const Podio = () => {
             transition={{ delay: 0.3 }}
             className="flex flex-col items-center"
           >
-            <div 
+            <div
               className="mb-4 rounded-lg p-6 text-center glow-silver"
-              style={{ backgroundColor: `hsl(var(--team-${ranking[1].cor}) / 0.2)`, borderColor: `hsl(var(--team-${ranking[1].cor}))`, borderWidth: 2 }}
+              style={{
+                backgroundColor: `hsl(var(--team-${ranking[1].cor}) / 0.2)`,
+                borderColor: `hsl(var(--team-${ranking[1].cor}))`,
+                borderWidth: 2,
+              }}
             >
               <p className="text-silver text-5xl font-bold">2º</p>
-              <h3 className="mt-2 text-xl font-bold" style={{ color: `hsl(var(--team-${ranking[1].cor}))` }}>
+              <h3
+                className="mt-2 text-xl font-bold"
+                style={{ color: `hsl(var(--team-${ranking[1].cor}))` }}
+              >
                 {ranking[1].nome}
               </h3>
               {showPoints && (
@@ -116,11 +96,18 @@ const Podio = () => {
               animate={{ scale: [1, 1.02, 1] }}
               transition={{ duration: 2, repeat: Infinity }}
               className="mb-4 rounded-lg p-8 text-center glow-gold"
-              style={{ backgroundColor: `hsl(var(--team-${ranking[0].cor}) / 0.2)`, borderColor: `hsl(var(--team-${ranking[0].cor}))`, borderWidth: 3 }}
+              style={{
+                backgroundColor: `hsl(var(--team-${ranking[0].cor}) / 0.2)`,
+                borderColor: `hsl(var(--team-${ranking[0].cor}))`,
+                borderWidth: 3,
+              }}
             >
               <Trophy className="mx-auto mb-2 h-12 w-12 text-gold" />
               <p className="text-gold text-6xl font-bold text-glow">1º</p>
-              <h3 className="mt-2 text-2xl font-bold" style={{ color: `hsl(var(--team-${ranking[0].cor}))` }}>
+              <h3
+                className="mt-2 text-2xl font-bold"
+                style={{ color: `hsl(var(--team-${ranking[0].cor}))` }}
+              >
                 {ranking[0].nome}
               </h3>
               {showPoints && (
@@ -142,12 +129,19 @@ const Podio = () => {
             transition={{ delay: 0.5 }}
             className="flex flex-col items-center"
           >
-            <div 
+            <div
               className="mb-4 rounded-lg p-6 text-center glow-bronze"
-              style={{ backgroundColor: `hsl(var(--team-${ranking[2].cor}) / 0.2)`, borderColor: `hsl(var(--team-${ranking[2].cor}))`, borderWidth: 2 }}
+              style={{
+                backgroundColor: `hsl(var(--team-${ranking[2].cor}) / 0.2)`,
+                borderColor: `hsl(var(--team-${ranking[2].cor}))`,
+                borderWidth: 2,
+              }}
             >
               <p className="text-bronze text-4xl font-bold">3º</p>
-              <h3 className="mt-2 text-lg font-bold" style={{ color: `hsl(var(--team-${ranking[2].cor}))` }}>
+              <h3
+                className="mt-2 text-lg font-bold"
+                style={{ color: `hsl(var(--team-${ranking[2].cor}))` }}
+              >
                 {ranking[2].nome}
               </h3>
               {showPoints && (
@@ -175,12 +169,17 @@ const Podio = () => {
               className="flex items-center gap-4 rounded-lg border border-border bg-card/50 p-4"
               style={{ borderLeftColor: `hsl(var(--team-${equipe.cor}))`, borderLeftWidth: 4 }}
             >
-              <div className={`flex h-10 w-10 items-center justify-center rounded-full font-bold ${
-                index === 0 ? 'bg-gold/20 text-gold' :
-                index === 1 ? 'bg-silver/20 text-silver' :
-                index === 2 ? 'bg-bronze/20 text-bronze' :
-                'bg-secondary text-foreground'
-              }`}>
+              <div
+                className={`flex h-10 w-10 items-center justify-center rounded-full font-bold ${
+                  index === 0
+                    ? 'bg-gold/20 text-gold'
+                    : index === 1
+                    ? 'bg-silver/20 text-silver'
+                    : index === 2
+                    ? 'bg-bronze/20 text-bronze'
+                    : 'bg-secondary text-foreground'
+                }`}
+              >
                 {index + 1}º
               </div>
               <div className="flex-1">
@@ -199,54 +198,8 @@ const Podio = () => {
           ))}
         </div>
       </div>
-
-      {/* Control Buttons */}
-      <div className="fixed right-4 top-4 z-50 flex gap-2">
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={() => setShowPoints(!showPoints)}
-          title={showPoints ? 'Ocultar pontos' : 'Mostrar pontos'}
-        >
-          {showPoints ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-        </Button>
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={handleOpenPublico}
-          title="Abrir projeção"
-        >
-          <ExternalLink className="h-5 w-5" />
-        </Button>
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={handleExportPDF}
-          title="Baixar PDF do pódio"
-        >
-          <FileDown className="h-5 w-5" />
-        </Button>
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={toggleFullscreen}
-          title={isFullscreen ? 'Sair da tela cheia' : 'Tela cheia'}
-        >
-          {isFullscreen ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
-        </Button>
-      </div>
     </div>
-  );
-
-  if (isFullscreen) {
-    return <PodiumContent />;
-  }
-
-  return (
-    <MainLayout>
-      <PodiumContent />
-    </MainLayout>
   );
 };
 
-export default Podio;
+export default PublicoPodio;

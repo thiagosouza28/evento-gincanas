@@ -1,6 +1,7 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import type { Inscrito, EquipeComParticipantes } from '@/types';
+import type { Inscrito, EquipeComParticipantes, Equipe, Gincana, Pontuacao } from '@/types';
+import type { Torneio } from '@/types/torneio';
 
 // Helper to convert hex color to RGB array
 function hexToRgb(hex: string): [number, number, number] {
@@ -28,6 +29,33 @@ function lightenColor(rgb: [number, number, number], factor: number = 0.15): [nu
   ];
 }
 
+function normalizeText(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+const fallbackTeamColors = [
+  '#22c55e',
+  '#3b82f6',
+  '#f59e0b',
+  '#ef4444',
+  '#a855f7',
+  '#06b6d4',
+  '#f97316',
+  '#10b981',
+];
+
+function getEquipeColorHex(equipe: Equipe, fallbackIndex: number = 0) {
+  if (equipe.corPulseira) return equipe.corPulseira;
+  if (typeof equipe.cor === 'number') {
+    return fallbackTeamColors[(equipe.cor - 1) % fallbackTeamColors.length];
+  }
+  return fallbackTeamColors[fallbackIndex % fallbackTeamColors.length];
+}
+
 // Helper to load image as base64
 async function loadImageAsBase64(url: string): Promise<string | null> {
   try {
@@ -47,6 +75,7 @@ async function loadImageAsBase64(url: string): Promise<string | null> {
 
 // Cache for loaded images
 const imageCache = new Map<string, string>();
+const FOOTER_MARGIN = 22;
 
 async function getImageBase64(url: string): Promise<string | null> {
   if (!url) return null;
@@ -157,6 +186,7 @@ async function drawParticipantsTable(
   if (participantes.length > 0) {
     autoTable(doc, {
       startY: startY + 5,
+      margin: { bottom: FOOTER_MARGIN },
       head: [hasImages ? ['#', 'Foto', 'Nº', 'Nome', 'Idade', 'Igreja'] : ['#', 'Nº Inscr.', 'Nome', 'Idade', 'Igreja', 'Distrito']],
       body: participantes.map((p, index) => {
         if (hasImages) {
@@ -263,10 +293,6 @@ function addFooter(doc: jsPDF, dataAtual: string) {
   
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
-    
-    // Footer line
-    doc.setDrawColor(200, 200, 200);
-    doc.line(14, pageHeight - 18, pageWidth - 14, pageHeight - 18);
     
     // Footer text
     doc.setFontSize(8);
@@ -510,16 +536,25 @@ export function generateInscritosPDF(
   doc.setFontSize(11);
   doc.text(`${inscritosFiltrados.length} inscritos`, pageWidth - 34, 21, { align: 'center' });
 
+  const statusLabelMap: Record<string, string> = {
+    PAID: 'Pago',
+    PENDING: 'Pendente',
+    CANCELLED: 'Cancelado',
+    MANUAL: 'Manual',
+  };
+
   // ============ TABLE ============
   autoTable(doc, {
     startY: 45,
-    head: [['Nº', 'Nome', 'Idade', 'Igreja', 'Distrito']],
+    margin: { bottom: FOOTER_MARGIN },
+    head: [['Nº', 'Nome', 'Idade', 'Igreja', 'Distrito', 'Status']],
     body: inscritosFiltrados.map(i => [
       String(i.numero),
       i.nome,
       i.idade ? `${i.idade}` : '-',
       i.igreja,
       i.distrito,
+      statusLabelMap[i.statusPagamento] || 'Pendente',
     ]),
     styles: {
       fontSize: 8,
@@ -534,11 +569,12 @@ export function generateInscritosPDF(
       halign: 'center',
     },
     columnStyles: {
-      0: { halign: 'center', cellWidth: 15 },
-      1: { cellWidth: 70 },
-      2: { halign: 'center', cellWidth: 18 },
-      3: { cellWidth: 45 },
-      4: { cellWidth: 40 },
+      0: { halign: 'center', cellWidth: 12 },
+      1: { cellWidth: 62 },
+      2: { halign: 'center', cellWidth: 16 },
+      3: { cellWidth: 40 },
+      4: { cellWidth: 35 },
+      5: { halign: 'center', cellWidth: 18 },
     },
     alternateRowStyles: {
       fillColor: [250, 250, 252],
@@ -547,30 +583,17 @@ export function generateInscritosPDF(
       textColor: [50, 50, 50],
     },
     didParseCell: (data) => {
-      if (data.section === 'body') {
-        // Status column
-        if (data.column.index === 5) {
-          const value = String(data.cell.raw);
-          if (value.includes('Pago')) {
-            data.cell.styles.textColor = [34, 197, 94];
-            data.cell.styles.fontStyle = 'bold';
-          } else if (value.includes('Pendente')) {
-            data.cell.styles.textColor = [234, 179, 8];
-          } else if (value.includes('Cancelado')) {
-            data.cell.styles.textColor = [239, 68, 68];
-          } else if (value.includes('Manual')) {
-            data.cell.styles.textColor = [99, 102, 241];
-          }
-        }
-        // Sorteio column
-        if (filtro?.sorteados && data.column.index === 6) {
-          const value = String(data.cell.raw);
-          if (value.includes('Sim')) {
-            data.cell.styles.textColor = [34, 197, 94];
-            data.cell.styles.fontStyle = 'bold';
-          } else {
-            data.cell.styles.textColor = [150, 150, 150];
-          }
+      if (data.section === 'body' && data.column.index === 5) {
+        const value = String(data.cell.raw);
+        if (value.includes('Pago')) {
+          data.cell.styles.textColor = [34, 197, 94];
+          data.cell.styles.fontStyle = 'bold';
+        } else if (value.includes('Pendente')) {
+          data.cell.styles.textColor = [234, 179, 8];
+        } else if (value.includes('Cancelado')) {
+          data.cell.styles.textColor = [239, 68, 68];
+        } else if (value.includes('Manual')) {
+          data.cell.styles.textColor = [99, 102, 241];
         }
       }
     }
@@ -740,6 +763,7 @@ export async function generatePodioPDF(
 
   autoTable(doc, {
     startY: tableTitleY + 8,
+    margin: { bottom: FOOTER_MARGIN },
     head: [['Posição', 'Equipe', 'Participantes', 'Pontuação']],
     body: ranking.map((equipe, index) => [
       `${index + 1}º`,
@@ -813,5 +837,315 @@ export async function generatePodioPDF(
   addFooter(doc, dataAtual);
   
   const fileName = `podio-${gincanaName?.toLowerCase().replace(/\s+/g, '-') || 'gincana'}-${new Date().toISOString().split('T')[0]}.pdf`;
+  doc.save(fileName);
+}
+
+function isPontuacaoTorneio(pontuacao: Pontuacao, torneio: Torneio) {
+  if (!pontuacao.observacao) return false;
+  const obs = normalizeText(pontuacao.observacao);
+  const torneioNome = normalizeText(torneio.nome);
+  return obs.includes(torneioNome);
+}
+
+export function generatePontuacaoEquipePDF(
+  equipe: Equipe,
+  gincanas: Gincana[],
+  torneios: Torneio[],
+  pontuacoes: Pontuacao[]
+) {
+  const doc = new jsPDF();
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const teamColor = getEquipeColorHex(equipe);
+  const rgb = hexToRgb(teamColor);
+
+  const dataAtual = new Date().toLocaleDateString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+
+  const pontuacoesEquipe = pontuacoes.filter(p => p.equipeId === equipe.id);
+  const totalEquipe = pontuacoesEquipe.reduce((sum, p) => sum + p.pontos, 0);
+
+  // Header
+  doc.setFillColor(rgb[0], rgb[1], rgb[2]);
+  doc.rect(0, 0, pageWidth, 28, 'F');
+  doc.setFontSize(18);
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('helvetica', 'bold');
+  doc.text('RELATORIO DE PONTUACAO', 14, 18);
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'normal');
+  doc.text(equipe.nome, 14, 25);
+
+  doc.setFontSize(10);
+  doc.setTextColor(100, 100, 100);
+  doc.text(`Equipe N ${equipe.numero}`, 14, 38);
+  doc.text(`Total: ${totalEquipe} pts`, pageWidth - 14, 38, { align: 'right' });
+
+  let currentY = 48;
+
+  // Pontuacao por gincana
+  if (gincanas.length > 0) {
+    doc.setFontSize(12);
+    doc.setTextColor(30, 41, 59);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Pontuacao por Gincana', 14, currentY);
+
+    autoTable(doc, {
+      startY: currentY + 6,
+      margin: { bottom: FOOTER_MARGIN },
+      head: [['Gincana', 'Pontos']],
+      body: gincanas.map((g) => {
+        const pontos = pontuacoesEquipe
+          .filter(p => p.gincanaId === g.id)
+          .reduce((sum, p) => sum + p.pontos, 0);
+        return [g.nome, String(pontos)];
+      }),
+      styles: {
+        fontSize: 9,
+        cellPadding: 4,
+        lineColor: [220, 220, 220],
+        lineWidth: 0.1,
+      },
+      headStyles: {
+        fillColor: [30, 41, 59],
+        textColor: 255,
+        fontStyle: 'bold',
+      },
+      columnStyles: {
+        1: { halign: 'right', cellWidth: 24 },
+      },
+      alternateRowStyles: {
+        fillColor: [250, 250, 252],
+      },
+      bodyStyles: {
+        textColor: [50, 50, 50],
+      },
+    });
+
+    const lastY = (doc as any).lastAutoTable?.finalY ?? currentY + 20;
+    currentY = lastY + 10;
+  } else {
+    doc.setFontSize(10);
+    doc.setTextColor(120, 120, 120);
+    doc.text('Nenhuma gincana cadastrada.', 14, currentY + 6);
+    currentY += 16;
+  }
+
+  // Pontuacao por torneio
+  if (torneios.length > 0) {
+    if (currentY > pageHeight - 60) {
+      doc.addPage();
+      currentY = 20;
+    }
+    doc.setFontSize(12);
+    doc.setTextColor(30, 41, 59);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Pontuacao por Torneio', 14, currentY);
+
+    autoTable(doc, {
+      startY: currentY + 6,
+      margin: { bottom: FOOTER_MARGIN },
+      head: [['Torneio', 'Gincana', 'Pontos']],
+      body: torneios.map((t) => {
+        const pontos = pontuacoesEquipe
+          .filter(p => isPontuacaoTorneio(p, t))
+          .reduce((sum, p) => sum + p.pontos, 0);
+        const gincanaNome = gincanas.find(g => g.id === t.gincana_id)?.nome || '-';
+        return [t.nome, gincanaNome, String(pontos)];
+      }),
+      styles: {
+        fontSize: 9,
+        cellPadding: 4,
+        lineColor: [220, 220, 220],
+        lineWidth: 0.1,
+      },
+      headStyles: {
+        fillColor: [30, 41, 59],
+        textColor: 255,
+        fontStyle: 'bold',
+      },
+      columnStyles: {
+        2: { halign: 'right', cellWidth: 24 },
+      },
+      alternateRowStyles: {
+        fillColor: [250, 250, 252],
+      },
+      bodyStyles: {
+        textColor: [50, 50, 50],
+      },
+    });
+  } else {
+    if (currentY > pageHeight - 40) {
+      doc.addPage();
+      currentY = 20;
+    }
+    doc.setFontSize(10);
+    doc.setTextColor(120, 120, 120);
+    doc.text('Nenhum torneio cadastrado.', 14, currentY + 6);
+  }
+
+  addFooter(doc, dataAtual);
+
+  const fileName = `pontuacao-${equipe.nome.toLowerCase().replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}.pdf`;
+  doc.save(fileName);
+}
+
+export function generatePontuacaoGeralPDF(
+  equipes: Equipe[],
+  gincanas: Gincana[],
+  torneios: Torneio[],
+  pontuacoes: Pontuacao[]
+) {
+  const doc = new jsPDF({ orientation: 'landscape' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+
+  const dataAtual = new Date().toLocaleDateString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+
+  const equipesMap = new Map<string, { total: number; porGincana: Map<string, number>; porTorneio: Map<string, number> }>();
+  equipes.forEach((e) => {
+    equipesMap.set(e.id, { total: 0, porGincana: new Map(), porTorneio: new Map() });
+  });
+
+  pontuacoes.forEach((p) => {
+    const entry = equipesMap.get(p.equipeId);
+    if (!entry) return;
+    entry.total += p.pontos;
+    entry.porGincana.set(p.gincanaId, (entry.porGincana.get(p.gincanaId) || 0) + p.pontos);
+
+    for (const torneio of torneios) {
+      if (isPontuacaoTorneio(p, torneio)) {
+        entry.porTorneio.set(torneio.id, (entry.porTorneio.get(torneio.id) || 0) + p.pontos);
+        break;
+      }
+    }
+  });
+
+  const equipesOrdenadas = [...equipes].sort((a, b) => {
+    const totalA = equipesMap.get(a.id)?.total || 0;
+    const totalB = equipesMap.get(b.id)?.total || 0;
+    return totalB - totalA;
+  });
+
+  doc.setFontSize(18);
+  doc.setTextColor(30, 41, 59);
+  doc.setFont('helvetica', 'bold');
+  doc.text('RELATORIO GERAL DE PONTUACAO', 14, 16);
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(120, 120, 120);
+  doc.text(`Gerado em ${dataAtual}`, pageWidth - 14, 16, { align: 'right' });
+
+  let currentY = 26;
+
+  if (gincanas.length > 0) {
+    doc.setFontSize(12);
+    doc.setTextColor(30, 41, 59);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Pontuacao por Gincana', 14, currentY);
+
+    autoTable(doc, {
+      startY: currentY + 6,
+      margin: { bottom: FOOTER_MARGIN },
+      head: [['Equipe', ...gincanas.map(g => g.nome), 'Total']],
+      body: equipesOrdenadas.map((e) => {
+        const entry = equipesMap.get(e.id);
+        const valores = gincanas.map(g => String(entry?.porGincana.get(g.id) || 0));
+        return [e.nome, ...valores, String(entry?.total || 0)];
+      }),
+      styles: {
+        fontSize: 8,
+        cellPadding: 3,
+        lineColor: [220, 220, 220],
+        lineWidth: 0.1,
+      },
+      headStyles: {
+        fillColor: [30, 41, 59],
+        textColor: 255,
+        fontStyle: 'bold',
+      },
+      columnStyles: {
+        0: { cellWidth: 45 },
+      },
+      alternateRowStyles: {
+        fillColor: [250, 250, 252],
+      },
+      bodyStyles: {
+        textColor: [50, 50, 50],
+      },
+      didParseCell: (data) => {
+        if (data.section === 'body' && data.column.index > 0) {
+          data.cell.styles.halign = 'right';
+        }
+      },
+    });
+
+    const lastY = (doc as any).lastAutoTable?.finalY ?? currentY + 20;
+    currentY = lastY + 10;
+  }
+
+  if (torneios.length > 0) {
+    if (currentY > pageHeight - 40) {
+      doc.addPage();
+      currentY = 20;
+    }
+
+    doc.setFontSize(12);
+    doc.setTextColor(30, 41, 59);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Pontuacao por Torneio', 14, currentY);
+
+    autoTable(doc, {
+      startY: currentY + 6,
+      margin: { bottom: FOOTER_MARGIN },
+      head: [['Equipe', ...torneios.map(t => t.nome), 'Total Torneios']],
+      body: equipesOrdenadas.map((e) => {
+        const entry = equipesMap.get(e.id);
+        const valores = torneios.map(t => String(entry?.porTorneio.get(t.id) || 0));
+        const totalTorneios = torneios.reduce((sum, t) => sum + (entry?.porTorneio.get(t.id) || 0), 0);
+        return [e.nome, ...valores, String(totalTorneios)];
+      }),
+      styles: {
+        fontSize: 8,
+        cellPadding: 3,
+        lineColor: [220, 220, 220],
+        lineWidth: 0.1,
+      },
+      headStyles: {
+        fillColor: [30, 41, 59],
+        textColor: 255,
+        fontStyle: 'bold',
+      },
+      columnStyles: {
+        0: { cellWidth: 45 },
+      },
+      alternateRowStyles: {
+        fillColor: [250, 250, 252],
+      },
+      bodyStyles: {
+        textColor: [50, 50, 50],
+      },
+      didParseCell: (data) => {
+        if (data.section === 'body' && data.column.index > 0) {
+          data.cell.styles.halign = 'right';
+        }
+      },
+    });
+  }
+
+  addFooter(doc, dataAtual);
+
+  const fileName = `pontuacao-geral-${new Date().toISOString().split('T')[0]}.pdf`;
   doc.save(fileName);
 }

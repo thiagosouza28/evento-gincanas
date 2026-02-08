@@ -4,11 +4,13 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useApiConfig, useDatabase, useOnlineStatus, useSystemConfig } from '@/hooks/useDatabase';
 import { Wifi, WifiOff, RefreshCw, CheckCircle2, AlertCircle, Loader2, Database, Settings } from 'lucide-react';
 import { motion } from 'framer-motion';
 import * as db from '@/lib/database';
-import { syncInscritos, testApiConnection } from '@/lib/apiSync';
+import { fetchEventos, syncInscritos, testApiConnection } from '@/lib/apiSync';
 import { toast } from 'sonner';
 
 const Configuracoes = () => {
@@ -23,12 +25,41 @@ const Configuracoes = () => {
   const [testing, setTesting] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [syncMessage, setSyncMessage] = useState('');
+  const [eventId, setEventId] = useState('');
+  const [eventos, setEventos] = useState<Array<{ id: string; name: string }>>([]);
+  const [eventosLoading, setEventosLoading] = useState(false);
+  const [syncStatuses, setSyncStatuses] = useState<Array<'PAID' | 'PENDING' | 'CANCELLED'>>(['PAID', 'PENDING', 'CANCELLED']);
 
   useEffect(() => {
     if (systemConfig) {
       setMinEquipes(String(systemConfig.minEquipes));
     }
   }, [systemConfig]);
+
+  useEffect(() => {
+    if (config?.eventId) {
+      setEventId(config.eventId);
+    }
+    if (config?.syncStatuses && config.syncStatuses.length > 0) {
+      setSyncStatuses(config.syncStatuses);
+    }
+  }, [config]);
+
+  useEffect(() => {
+    let active = true;
+    const loadEventos = async () => {
+      setEventosLoading(true);
+      const list = await fetchEventos();
+      if (active) {
+        setEventos(list);
+        setEventosLoading(false);
+      }
+    };
+    loadEventos();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const handleTestConnection = async () => {
     setTesting(true);
@@ -54,7 +85,7 @@ const Configuracoes = () => {
     setSyncMessage('');
     
     try {
-      const result = await syncInscritos();
+      const result = await syncInscritos(eventId || undefined, syncStatuses);
       
       if (result.success) {
         await reinitialize();
@@ -66,6 +97,8 @@ const Configuracoes = () => {
           baseUrl: 'mysql-database',
           token: '',
           lastSync: new Date().toISOString(),
+          eventId: eventId || undefined,
+          syncStatuses,
         });
       } else {
         setSyncStatus('error');
@@ -78,6 +111,26 @@ const Configuracoes = () => {
     } finally {
       setSyncing(false);
     }
+  };
+
+  const handleSaveEventId = async () => {
+    await saveConfig({
+      baseUrl: config?.baseUrl || 'mysql-database',
+      token: config?.token || '',
+      lastSync: config?.lastSync,
+      eventId: eventId || undefined,
+      syncStatuses,
+    });
+    toast.success('Filtros de sincronização salvos.');
+  };
+
+  const toggleStatus = (status: 'PAID' | 'PENDING' | 'CANCELLED') => {
+    setSyncStatuses((prev) => {
+      if (prev.includes(status)) {
+        return prev.filter((item) => item !== status);
+      }
+      return [...prev, status];
+    });
   };
 
 
@@ -202,6 +255,57 @@ const Configuracoes = () => {
                     <p className="text-sm text-muted-foreground">Credenciais armazenadas com segurança</p>
                   </div>
                 </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Evento para sincronizar (opcional)</Label>
+                <div className="flex gap-2">
+                  <Select value={eventId || 'all'} onValueChange={(value) => setEventId(value === 'all' ? '' : value)}>
+                    <SelectTrigger className="w-full" disabled={eventosLoading}>
+                      <SelectValue placeholder={eventosLoading ? 'Carregando eventos...' : 'Todos'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos</SelectItem>
+                      {eventos.map((evento) => (
+                        <SelectItem key={evento.id} value={evento.id}>{evento.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button variant="outline" onClick={handleSaveEventId}>
+                    Salvar Filtros
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Se informado, a sincronização buscará apenas as inscrições desse evento.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label>Status para sincronizar</Label>
+                <div className="flex flex-wrap gap-4">
+                  <label className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={syncStatuses.includes('PAID')}
+                      onCheckedChange={() => toggleStatus('PAID')}
+                    />
+                    Pagos
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={syncStatuses.includes('PENDING')}
+                      onCheckedChange={() => toggleStatus('PENDING')}
+                    />
+                    Pendentes
+                  </label>
+                  <label className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={syncStatuses.includes('CANCELLED')}
+                      onCheckedChange={() => toggleStatus('CANCELLED')}
+                    />
+                    Cancelados
+                  </label>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Se nenhum status for selecionado, todos serão sincronizados.
+                </p>
               </div>
               <Button 
                 onClick={handleTestConnection} 

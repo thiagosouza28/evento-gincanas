@@ -25,7 +25,37 @@ serve(async (req) => {
     }
 
     const reqUrl = new URL(req.url);
-    const action = reqUrl.searchParams.get('action');
+    const actionFromQuery = reqUrl.searchParams.get('action');
+    let body: Record<string, unknown> | null = null;
+    if (req.method !== 'GET') {
+      try {
+        body = await req.json();
+      } catch {
+        body = null;
+      }
+    }
+    const action = actionFromQuery || (body?.action as string | undefined);
+    const requestedEventId = (body?.eventId as string | undefined)
+      || reqUrl.searchParams.get('eventId')
+      || reqUrl.searchParams.get('event_id')
+      || undefined;
+
+    const requestedStatusesRaw = (body?.statuses as unknown)
+      || reqUrl.searchParams.get('statuses')
+      || reqUrl.searchParams.get('status');
+
+    const normalizeStatuses = (value: unknown): string[] => {
+      if (!value) return [];
+      if (Array.isArray(value)) {
+        return value.map((v) => String(v));
+      }
+      if (typeof value === 'string') {
+        return value.split(',').map((v) => v.trim()).filter(Boolean);
+      }
+      return [];
+    };
+
+    const requestedStatuses = normalizeStatuses(requestedStatusesRaw).map((s) => s.toUpperCase());
 
     console.log('Action requested:', action);
     console.log('Connecting to MySQL database...');
@@ -73,6 +103,53 @@ serve(async (req) => {
       });
     }
 
+    // Eventos action
+    if (action === 'events') {
+      const tablesResult = await client.query('SHOW TABLES');
+      const tableNames = (tablesResult as RowData[]).map((row) => String(Object.values(row)[0] || ''));
+      const lowerNames = new Set(tableNames.map((name) => name.toLowerCase()));
+      const candidates = ['event', 'events', 'evento', 'eventos'];
+      const matched = candidates.find((candidate) => lowerNames.has(candidate));
+      const tableName = matched ? tableNames.find((name) => name.toLowerCase() === matched) : null;
+
+      if (!tableName) {
+        await client.close();
+        return new Response(JSON.stringify({ events: [] }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 200,
+        });
+      }
+
+      const columns = await client.query(`DESCRIBE ${tableName}`);
+      const columnList = (columns as RowData[]).map((col) => String(col.Field ?? col.field ?? col.COLUMN_NAME ?? col.column_name ?? '')).filter(Boolean);
+      const columnNames = new Set(columnList);
+      const columnMap = new Map<string, string>();
+      columnList.forEach((name) => columnMap.set(name.toLowerCase(), name));
+
+      const idCandidates = ['id', 'event_id', 'evento_id'];
+      const nameCandidates = ['name', 'nome', 'title', 'titulo', 'descricao', 'description'];
+
+      const idColumn = idCandidates
+        .map((candidate) => columnMap.get(candidate.toLowerCase()))
+        .find(Boolean)
+        || Array.from(columnNames)[0]
+        || 'id';
+      const nameColumn = nameCandidates
+        .map((candidate) => columnMap.get(candidate.toLowerCase()))
+        .find(Boolean)
+        || idColumn;
+
+      const events = await client.query(
+        `SELECT \`${idColumn}\` AS id, \`${nameColumn}\` AS name FROM \`${tableName}\` ORDER BY \`${nameColumn}\` ASC LIMIT 5000`
+      );
+
+      await client.close();
+      return new Response(JSON.stringify({ events }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 200,
+      });
+    }
+
     // First, fetch all districts and churches for mapping
     const districtsResult = await client.query('SELECT id, name FROM District');
     const churchesResult = await client.query('SELECT id, name FROM Church');
@@ -91,13 +168,65 @@ serve(async (req) => {
 
     console.log(`Loaded ${districtMap.size} districts and ${churchMap.size} churches`);
 
+    let eventColumn: string | null = null;
+    if (requestedEventId) {
+      const columns = await client.query('DESCRIBE Registration');
+      const columnList = (columns as RowData[]).map((col) => String(col.Field ?? col.field ?? col.COLUMN_NAME ?? col.column_name ?? '')).filter(Boolean);
+      const columnMap = new Map<string, string>();
+      columnList.forEach((name) => columnMap.set(name.toLowerCase(), name));
+      const candidates = ['eventid', 'event_id', 'evento_id', 'eventoid'];
+      eventColumn = candidates.map((candidate) => columnMap.get(candidate)).find(Boolean) || null;
+      if (!eventColumn) {
+        console.warn('Event column not found in Registration table, ignoring event filter.');
+      }
+    }
+
+    const whereClauses: string[] = [];
+    const params: unknown[] = [];
+    if (eventColumn && requestedEventId) {
+      whereClauses.push(`\`${eventColumn}\` = ?`);
+      params.push(requestedEventId);
+    }
+
+    const requestedSet = new Set(requestedStatuses);
+    const hasAllSelected =
+      requestedSet.size === 0 ||
+      requestedSet.has('ALL') ||
+      (requestedSet.has('PAID') && requestedSet.has('PENDING') && requestedSet.has('CANCELLED'));
+
+    if (!hasAllSelected) {
+      const statusMap: Record<string, string[]> = {
+        PAID: ['PAID', 'APPROVED', 'PAGO', 'CONFIRMED', 'CONFIRMADO'],
+        PENDING: ['PENDING', 'PENDENTE', 'AGUARDANDO', 'EM ABERTO', 'AWAITING'],
+        CANCELLED: ['CANCELLED', 'CANCELED', 'CANCELADO', 'CANCELADA', 'REFUNDED', 'REEMBOLSADO'],
+      };
+
+      const statusSet = new Set<string>();
+      for (const status of requestedStatuses) {
+        const mapped = statusMap[status];
+        if (mapped) {
+          mapped.forEach((item) => statusSet.add(item));
+        }
+      }
+
+      if (statusSet.size > 0) {
+        const statusValues = Array.from(statusSet);
+        const placeholders = statusValues.map(() => '?').join(',');
+        whereClauses.push(`UPPER(status) IN (${placeholders})`);
+        params.push(...statusValues);
+      }
+    }
+
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
     // Fetch registrations - incluindo photoUrl explicitamente
     const result = await client.query(
       `SELECT id, fullName, birthDate, ageYears, districtId, churchId, photoUrl, status, createdAt 
        FROM Registration 
-       WHERE status = 'PAID'
+       ${whereSql}
        ORDER BY createdAt ASC 
-       LIMIT 5000`
+       LIMIT 5000`,
+      params
     );
 
     console.log('Query executed, rows:', result.length);

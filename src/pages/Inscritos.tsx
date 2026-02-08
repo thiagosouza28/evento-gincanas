@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -9,11 +9,11 @@ import { Badge } from '@/components/ui/badge';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
-import { useInscritos, useSorteios } from '@/hooks/useDatabase';
+import { useInscritos, useSorteios, useApiConfig } from '@/hooks/useDatabase';
 import { Search, Users, Loader2, RefreshCw, FileDown, ChevronDown, Pencil, Trash2, MoreHorizontal, ArrowUpDown } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AddInscritoForm } from '@/components/sorteio/AddInscritoForm';
-import { syncInscritos } from '@/lib/apiSync';
+import { syncInscritos, fetchEventos } from '@/lib/apiSync';
 import { generateInscritosPDF } from '@/lib/pdfGenerator';
 import { calcularIdade } from '@/types';
 import { toast } from 'sonner';
@@ -44,6 +44,9 @@ const Inscritos = () => {
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('numero-asc');
   const [syncing, setSyncing] = useState(false);
+  const [eventos, setEventos] = useState<Array<{ id: string; name: string }>>([]);
+  const [eventosLoading, setEventosLoading] = useState(false);
+  const [selectedEventId, setSelectedEventId] = useState<string>('all');
   
   // Modal de edição
   const [editingInscrito, setEditingInscrito] = useState<Inscrito | null>(null);
@@ -57,8 +60,33 @@ const Inscritos = () => {
   
   const { inscritos, loading: inscritosLoading, reload: reloadInscritos, saveInscrito, deleteInscrito } = useInscritos();
   const { sorteios } = useSorteios();
+  const { config, saveConfig } = useApiConfig();
   
   const sorteadosSet = useMemo(() => new Set(sorteios.map(s => s.numeroInscrito)), [sorteios]);
+
+  useEffect(() => {
+    if (config?.eventId) {
+      setSelectedEventId(config.eventId);
+    } else {
+      setSelectedEventId('all');
+    }
+  }, [config?.eventId]);
+
+  useEffect(() => {
+    let active = true;
+    const loadEventos = async () => {
+      setEventosLoading(true);
+      const list = await fetchEventos();
+      if (active) {
+        setEventos(list);
+        setEventosLoading(false);
+      }
+    };
+    loadEventos();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const inscritosFiltrados = useMemo(() => {
     let lista = Array.from(inscritos.values());
@@ -108,6 +136,19 @@ const Inscritos = () => {
     } finally {
       setSyncing(false);
     }
+  };
+
+  const handleEventChange = async (value: string) => {
+    setSelectedEventId(value);
+    const eventId = value === 'all' ? undefined : value;
+    await saveConfig({
+      baseUrl: config?.baseUrl || 'mysql-database',
+      token: config?.token || '',
+      lastSync: config?.lastSync,
+      eventId,
+      syncStatuses: config?.syncStatuses,
+    });
+    toast.success(eventId ? 'Evento selecionado para sincronização.' : 'Sincronização sem filtro de evento.');
   };
 
   // Lista de igrejas únicas
@@ -227,6 +268,20 @@ const Inscritos = () => {
           </div>
           
           <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Evento:</span>
+              <Select value={selectedEventId} onValueChange={handleEventChange}>
+                <SelectTrigger className="w-[220px]" disabled={eventosLoading}>
+                  <SelectValue placeholder={eventosLoading ? 'Carregando...' : 'Todos'} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  {eventos.map((evento) => (
+                    <SelectItem key={evento.id} value={evento.id}>{evento.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" className="gap-2">
