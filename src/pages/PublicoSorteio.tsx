@@ -57,12 +57,12 @@ const PublicoSorteio = () => {
   }, [reloadEquipes]);
 
   const { inscrito, equipe, sorteando, showResult } = sorteioData;
-  const numeroDigitado = sorteioData.numeroDigitado?.trim() ?? '';
+  const numeroDigitado = sorteioData.numeroDigitado?.trim() || '';
   const inscritoPreview = useMemo(() => {
     if (!numeroDigitado) return null;
     const numero = Number(numeroDigitado);
     if (!Number.isFinite(numero)) return null;
-    return inscritos.get(numero) ?? null;
+    return inscritos.get(numero) || null;
   }, [inscritos, numeroDigitado]);
 
   return (

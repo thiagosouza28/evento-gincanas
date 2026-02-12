@@ -181,7 +181,7 @@ serve(async (req) => {
     console.log(`Processing signup email for: ${user.email}`);
 
     // Build confirmation URL
-    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")   "";
     const confirmUrl = `${supabaseUrl}/auth/v1/verify?token=${email_data.token_hash}&type=${email_data.email_action_type}&redirect_to=${email_data.redirect_to}`;
 
     // Render email template

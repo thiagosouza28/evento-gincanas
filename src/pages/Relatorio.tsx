@@ -5,18 +5,16 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { BarChart3, Trophy, Medal, Users, FileDown } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import * as torneioService from '@/lib/torneioService';
-import type { Gincana, Equipe, Pontuacao, Inscrito } from '@/types';
+import type { Gincana, Equipe, Pontuacao } from '@/types';
 import type { Torneio } from '@/types/torneio';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { generatePontuacaoEquipePDF, generatePontuacaoGeralPDF } from '@/lib/pdfGenerator';
 import { toast } from 'sonner';
-import { useApiConfig } from '@/hooks/useDatabase';
-import { fetchEventos } from '@/lib/apiSync';
+import { useEventoNome } from '@/hooks/useEventoNome';
 
 interface PontuacaoPorGincana {
   gincanaId: string;
@@ -31,26 +29,16 @@ interface EquipeRelatorio {
   pontuacoesPorGincana: PontuacaoPorGincana[];
 }
 
-const statusLabels: Record<Inscrito['statusPagamento'], { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
-  PAID: { label: 'Pago', variant: 'default' },
-  PENDING: { label: 'Pendente', variant: 'secondary' },
-  CANCELLED: { label: 'Cancelado', variant: 'destructive' },
-  MANUAL: { label: 'Manual', variant: 'outline' },
-};
-
 export default function Relatorio() {
   const { user } = useAuth();
-  const { config } = useApiConfig();
+  const { eventId, eventoNome } = useEventoNome();
   const [gincanas, setGincanas] = useState<Gincana[]>([]);
   const [equipes, setEquipes] = useState<Equipe[]>([]);
   const [pontuacoes, setPontuacoes] = useState<Pontuacao[]>([]);
-  const [inscritos, setInscritos] = useState<Inscrito[]>([]);
   const [torneios, setTorneios] = useState<Torneio[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedGincana, setSelectedGincana] = useState<string>('all');
   const [selectedEquipeId, setSelectedEquipeId] = useState<string>('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'PAID' | 'PENDING' | 'CANCELLED' | 'MANUAL'>('all');
-  const [eventoNome, setEventoNome] = useState<string>('');
   
   useEffect(() => {
     if (user) {
@@ -64,24 +52,6 @@ export default function Relatorio() {
     }
   }, [user]);
 
-  useEffect(() => {
-    let active = true;
-    const loadEventoNome = async () => {
-      if (!config?.eventId) {
-        setEventoNome('');
-        return;
-      }
-      const eventos = await fetchEventos();
-      if (!active) return;
-      const match = eventos.find((evento) => evento.id === config.eventId);
-      setEventoNome(match?.name || config.eventId);
-    };
-    loadEventoNome();
-    return () => {
-      active = false;
-    };
-  }, [config?.eventId]);
-  
   async function loadData() {
     try {
       setLoading(true);
@@ -89,18 +59,16 @@ export default function Relatorio() {
         return;
       }
 
-      const [gincanasRes, equipesRes, pontuacoesRes, torneiosData, inscritosRes] = await Promise.all([
+      const [gincanasRes, equipesRes, pontuacoesRes, torneiosData] = await Promise.all([
         supabase.from('gincanas').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
         supabase.from('equipes').select('*').eq('user_id', user.id).order('nome'),
         supabase.from('pontuacoes').select('*').eq('user_id', user.id).order('data_hora', { ascending: false }),
         torneioService.getAllTorneios(),
-        supabase.from('inscritos').select('*').eq('user_id', user.id).order('numero'),
       ]);
 
       if (gincanasRes.error) throw gincanasRes.error;
       if (equipesRes.error) throw equipesRes.error;
       if (pontuacoesRes.error) throw pontuacoesRes.error;
-      if (inscritosRes.error) throw inscritosRes.error;
 
       const gincanasData = (gincanasRes.data || []).map(row => ({
         id: row.id,
@@ -133,24 +101,9 @@ export default function Relatorio() {
         dataHora: row.data_hora,
       }));
 
-      const inscritosData = (inscritosRes.data || []).map(row => ({
-        numero: row.numero,
-        nome: row.nome,
-        dataNascimento: row.data_nascimento || '',
-        idade: row.idade || 0,
-        igreja: row.igreja || 'Não informado',
-        distrito: row.distrito || 'Não informado',
-        fotoUrl: row.foto_url || undefined,
-        statusPagamento: (row.status_pagamento as Inscrito['statusPagamento']) || 'PENDING',
-        isManual: row.is_manual || false,
-        numeroOriginal: row.numero_original || undefined,
-        numeroPulseira: row.numero_pulseira || undefined,
-      }));
-
       setGincanas(gincanasData);
       setEquipes(equipesData);
       setPontuacoes(pontuacoesData);
-      setInscritos(inscritosData);
       setTorneios(torneiosData);
     } finally {
       setLoading(false);
@@ -213,19 +166,13 @@ export default function Relatorio() {
   // Estatísticas gerais
   const totalPontos = pontuacoes.reduce((sum, p) => sum + p.pontos, 0);
   const torneiosFinalizados = torneios.filter(t => t.status === 'finalizado').length;
-  const totalInscritos = inscritos.length;
-  const totalPagos = inscritos.filter(i => i.statusPagamento === 'PAID').length;
-  const totalPendentes = inscritos.filter(i => i.statusPagamento === 'PENDING').length;
-  const totalCancelados = inscritos.filter(i => i.statusPagamento === 'CANCELLED').length;
-  const totalManuais = inscritos.filter(i => i.statusPagamento === 'MANUAL').length;
-
-  const inscritosFiltrados = statusFilter === 'all'
-    ? inscritos
-    : inscritos.filter(i => i.statusPagamento === statusFilter);
 
   const handleExportGeral = async () => {
+    const pdfBranding = eventoNome
+      ? { eventName: eventoNome, logoUrl: '/icon.png' }
+      : undefined;
     toast.info('Gerando PDF geral...');
-    await generatePontuacaoGeralPDF(equipes, gincanas, torneios, pontuacoes);
+    await generatePontuacaoGeralPDF(equipes, gincanas, torneios, pontuacoes, pdfBranding);
     toast.success('PDF geral gerado com sucesso.');
   };
 
@@ -235,8 +182,11 @@ export default function Relatorio() {
       toast.error('Selecione uma equipe para gerar o PDF.');
       return;
     }
+    const pdfBranding = eventoNome
+      ? { eventName: eventoNome, logoUrl: '/icon.png' }
+      : undefined;
     toast.info(`Gerando PDF da equipe ${equipe.nome}...`);
-    await generatePontuacaoEquipePDF(equipe, gincanas, torneios, pontuacoes);
+    await generatePontuacaoEquipePDF(equipe, gincanas, torneios, pontuacoes, pdfBranding);
     toast.success('PDF da equipe gerado com sucesso.');
   };
   
@@ -258,9 +208,9 @@ export default function Relatorio() {
           <div>
             <h1 className="text-display-sm font-bold text-foreground">Relatório de Pontuação</h1>
             <p className="text-muted-foreground">Visualize a pontuação detalhada por equipe e modalidade</p>
-            {config?.eventId && (
+            {eventId && (
               <p className="text-sm text-muted-foreground mt-1">
-                Evento: <span className="font-medium text-foreground">{eventoNome || config.eventId}</span>
+                Evento: <span className="font-medium text-foreground">{eventoNome || eventId}</span>
               </p>
             )}
           </div>
@@ -313,7 +263,7 @@ export default function Relatorio() {
                   <Medal className="h-6 w-6 text-success" />
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Torneios Finalizados</p>
+                  <p className="text-sm text-muted-foreground">Competições Finalizadas</p>
                   <p className="text-2xl font-bold">{torneiosFinalizados}</p>
                 </div>
               </div>
@@ -335,92 +285,6 @@ export default function Relatorio() {
           </Card>
         </div>
 
-        {/* Status de pagamento */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Status de Pagamento</CardTitle>
-            <CardDescription>Resumo das inscrições por status</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-              <div className="rounded-lg border border-border/70 bg-card/40 p-4">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">Total</p>
-                <p className="text-2xl font-bold">{totalInscritos}</p>
-              </div>
-              <div className="rounded-lg border border-border/70 bg-card/40 p-4">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">Pagos</p>
-                <p className="text-2xl font-bold text-success">{totalPagos}</p>
-              </div>
-              <div className="rounded-lg border border-border/70 bg-card/40 p-4">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">Pendentes</p>
-                <p className="text-2xl font-bold text-warning">{totalPendentes}</p>
-              </div>
-              <div className="rounded-lg border border-border/70 bg-card/40 p-4">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">Cancelados</p>
-                <p className="text-2xl font-bold text-destructive">{totalCancelados}</p>
-              </div>
-              <div className="rounded-lg border border-border/70 bg-card/40 p-4">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">Manuais</p>
-                <p className="text-2xl font-bold">{totalManuais}</p>
-              </div>
-            </div>
-
-            <div className="mt-4 flex items-center gap-3">
-              <span className="text-sm text-muted-foreground">Filtrar por status:</span>
-              <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as typeof statusFilter)}>
-                <SelectTrigger className="w-[220px]">
-                  <SelectValue placeholder="Todos" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
-                  <SelectItem value="PAID">Pagos</SelectItem>
-                  <SelectItem value="PENDING">Pendentes</SelectItem>
-                  <SelectItem value="CANCELLED">Cancelados</SelectItem>
-                  <SelectItem value="MANUAL">Manuais</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="mt-4 max-h-80 overflow-y-auto rounded-lg border border-border/70">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-16">Nº</TableHead>
-                    <TableHead>Nome</TableHead>
-                    <TableHead>Igreja</TableHead>
-                    <TableHead>Distrito</TableHead>
-                    <TableHead>Status</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {inscritosFiltrados.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={5} className="text-center text-muted-foreground">
-                        Nenhuma inscrição encontrada.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    inscritosFiltrados.map((inscrito) => {
-                      const statusInfo = statusLabels[inscrito.statusPagamento] || statusLabels.PENDING;
-                      return (
-                        <TableRow key={inscrito.numero}>
-                          <TableCell>{inscrito.numero}</TableCell>
-                          <TableCell className="font-medium">{inscrito.nome}</TableCell>
-                          <TableCell>{inscrito.igreja}</TableCell>
-                          <TableCell>{inscrito.distrito}</TableCell>
-                          <TableCell>
-                            <Badge variant={statusInfo.variant}>{statusInfo.label}</Badge>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
-        
         {/* Filtro */}
         <div className="flex items-center gap-4">
           <span className="text-sm text-muted-foreground">Filtrar por:</span>

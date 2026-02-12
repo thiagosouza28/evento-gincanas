@@ -4,16 +4,6 @@ import { supabase } from '@/integrations/supabase/client';
 
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
-async function getFunctionHeaders() {
-  const { data: { session } } = await supabase.auth.getSession();
-  const token = session?.access_token || SUPABASE_PUBLISHABLE_KEY;
-
-  return {
-    apikey: SUPABASE_PUBLISHABLE_KEY,
-    Authorization: `Bearer ${token}`,
-  };
-}
-
 interface ApiInscrito {
   numero: string;
   nome: string;
@@ -23,6 +13,10 @@ interface ApiInscrito {
   distrito: string;
   fotoUrl: string | null;
   status: string;
+  loteId?: string | null;
+  loteNome?: string | null;
+  loteInicio?: string | null;
+  loteFim?: string | null;
   createdAt: string;
 }
 
@@ -40,7 +34,6 @@ async function callApiProxy(body?: Record<string, unknown>) {
   let lastError: Error | null = null;
   try {
     const { data, error } = await supabase.functions.invoke('api-proxy', {
-      headers: await getFunctionHeaders(),
       body,
     });
     if (!error) {
@@ -124,7 +117,7 @@ export async function syncInscritos(
     const manualInscritos = existingInscritos || [];
 
     // Mapear inscritos do banco MySQL
-    const apiInscritos: { user_id: string; numero: number; nome: string; data_nascimento: string | null; idade: number; igreja: string; distrito: string; foto_url: string | null; status_pagamento: string; is_manual: boolean; numero_original: string; numero_pulseira: string }[] = registrations.map((reg, index) => {
+    const apiInscritos: { user_id: string; numero: number; nome: string; data_nascimento: string | null; idade: number; igreja: string; distrito: string; foto_url: string | null; status_pagamento: string; is_manual: boolean; numero_original: string; numero_pulseira: string; lote_externo_id?: string | null; lote_externo_nome?: string | null }[] = registrations.map((reg, index) => {
       // Mapear status do banco para nosso enum
       const mapStatus = (status: string): 'PAID' | 'PENDING' | 'CANCELLED' => {
         const upperStatus = status?.toUpperCase() || '';
@@ -146,6 +139,8 @@ export async function syncInscritos(
         is_manual: false,
         numero_original: reg.numero, // Preservar ID original do banco
         numero_pulseira: String(index + 1), // Numero da pulseira = numero da lista
+        lote_externo_id: reg.loteId || null,
+        lote_externo_nome: reg.loteNome || null,
       };
     });
 
@@ -164,6 +159,8 @@ export async function syncInscritos(
       is_manual: true,
       numero_original: inscrito.numero_original || null,
       numero_pulseira: String(startManualNumber + index),
+      lote_externo_id: inscrito.lote_externo_id || null,
+      lote_externo_nome: inscrito.lote_externo_nome || null,
     }));
 
     // Deletar todos os inscritos não-manuais do usuário

@@ -7,16 +7,19 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { useSystemConfig } from '@/hooks/useDatabase';
-import { Trophy, Plus, Shuffle, Play, Check, Trash2, Eye, Settings, Dices, ExternalLink } from 'lucide-react';
+import { Trophy, Plus, Shuffle, Play, Check, Trash2, Eye, Settings, Dices, ExternalLink, Printer } from 'lucide-react';
 import { TournamentBracket } from '@/components/torneio/TournamentBracket';
 import * as torneioService from '@/lib/torneioService';
 import type { Gincana, Equipe, Pontuacao } from '@/types';
 import type { Torneio, Confronto } from '@/types/torneio';
+import { generateCompeticaoPDF } from '@/lib/pdfGenerator';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { useEventoNome } from '@/hooks/useEventoNome';
 
 // Canal de broadcast para sincronização do sorteio de torneio
 const TORNEIO_SORTEIO_CHANNEL = 'torneio-sorteio-broadcast-channel';
@@ -26,6 +29,7 @@ export default function Torneios() {
   const { toast } = useToast();
   const { user } = useAuth();
   const { config: systemConfig } = useSystemConfig();
+  const { eventoNome } = useEventoNome();
   
   // Estados
   const [gincanas, setGincanas] = useState<Gincana[]>([]);
@@ -44,7 +48,7 @@ export default function Torneios() {
   const [ultimoSorteado, setUltimoSorteado] = useState<string | null>(null);
   const [sorteando, setSorteando] = useState(false);
 
-  const torneioSelecionadoIdKey = 'torneios-selected-id';
+  const competicaoSelecionadaIdKey = 'competicoes-selected-id';
   
   // BroadcastChannel para tela pública
   const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
@@ -128,14 +132,14 @@ export default function Torneios() {
       setEquipes(equipesData);
       setTorneios(torneiosData);
 
-      const savedId = localStorage.getItem(torneioSelecionadoIdKey);
+      const savedId = localStorage.getItem(competicaoSelecionadaIdKey);
       const savedTorneio = savedId ? torneiosData.find(t => t.id === savedId) : null;
       if (savedTorneio) {
         setSelectedTorneio(savedTorneio);
         const conf = await torneioService.getConfrontosByTorneio(savedTorneio.id);
         setConfrontos(conf);
       } else if (savedId) {
-        localStorage.removeItem(torneioSelecionadoIdKey);
+        localStorage.removeItem(competicaoSelecionadaIdKey);
       }
     } catch (error) {
       toast({ title: 'Erro ao carregar dados', variant: 'destructive' });
@@ -147,7 +151,23 @@ export default function Torneios() {
   const handleOpenPublico = () => {
     const width = window.screen.width;
     const height = window.screen.height;
-    window.open('/publico-torneio', 'torneio-publico', `width=${width},height=${height},fullscreen=yes`);
+    window.open('/publico-competicao', 'competicao-publico', `width=${width},height=${height},fullscreen=yes`);
+  };
+
+  const handlePrintCompeticao = async () => {
+    if (!selectedTorneio) return;
+    const pdfBranding = eventoNome ? { eventName: eventoNome, logoUrl: '/icon.png' } : undefined;
+    try {
+      await generateCompeticaoPDF(
+        selectedTorneio,
+        confrontos,
+        equipes,
+        pdfBranding,
+        getGincanaNome(selectedTorneio.gincana_id)
+      );
+    } catch (error) {
+      toast({ title: 'Erro ao gerar PDF', variant: 'destructive' });
+    }
   };
   
   async function handleCreateTorneio() {
@@ -170,15 +190,15 @@ export default function Torneios() {
       setTorneios(prev => [novo, ...prev]);
       setIsCreating(false);
       setCreateForm({ nome: '', gincana_id: '', pontos_primeiro: 100, pontos_segundo: 70, pontos_terceiro: 50, pontos_participacao: 0 });
-      toast({ title: 'Torneio criado!' });
+      toast({ title: 'Competição criada!' });
     } catch (error) {
-      toast({ title: 'Erro ao criar torneio', variant: 'destructive' });
+      toast({ title: 'Erro ao criar competição', variant: 'destructive' });
     }
   }
   
   async function handleSelectTorneio(torneio: Torneio) {
     setSelectedTorneio(torneio);
-    localStorage.setItem(torneioSelecionadoIdKey, torneio.id);
+    localStorage.setItem(competicaoSelecionadaIdKey, torneio.id);
     const conf = await torneioService.getConfrontosByTorneio(torneio.id);
     setConfrontos(conf);
   }
@@ -449,7 +469,7 @@ export default function Torneios() {
     setSelectedTorneio(prev => prev ? { ...prev, status: 'finalizado' } : null);
     
     toast({ 
-      title: 'Torneio finalizado!', 
+      title: 'Competição finalizada!', 
       description: 'Pontuação aplicada às equipes automaticamente.' 
     });
   }
@@ -462,10 +482,10 @@ export default function Torneios() {
         setSelectedTorneio(null);
         setConfrontos([]);
       }
-      if (localStorage.getItem(torneioSelecionadoIdKey) === id) {
-        localStorage.removeItem(torneioSelecionadoIdKey);
+      if (localStorage.getItem(competicaoSelecionadaIdKey) === id) {
+        localStorage.removeItem(competicaoSelecionadaIdKey);
       }
-      toast({ title: 'Torneio excluído' });
+      toast({ title: 'Competição excluída' });
     } catch (error) {
       toast({ title: 'Erro ao excluir', variant: 'destructive' });
     }
@@ -485,6 +505,50 @@ export default function Torneios() {
         return <span className="px-2 py-1 text-xs rounded-full bg-success/20 text-success">Finalizado</span>;
     }
   }
+
+  function getFaseLabel(fase: Confronto['fase']) {
+    switch (fase) {
+      case 'quartas':
+        return 'Quartas de final';
+      case 'semifinal':
+        return 'Semifinal';
+      case 'terceiro_lugar':
+        return '3º lugar';
+      case 'final':
+        return 'Final';
+      default:
+        return fase;
+    }
+  }
+
+  function formatConfrontoDate(value?: string | null) {
+    if (!value) return '-';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '-';
+    return date.toLocaleString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+
+  const equipeMap = new Map(equipes.map((e) => [e.id, e]));
+  const getEquipeNome = (id?: string | null) =>
+    id ? equipeMap.get(id)?.nome || 'A definir' : 'A definir';
+
+  const confrontosOrdenados = [...confrontos].sort((a, b) => {
+    const faseOrder: Record<Confronto['fase'], number> = {
+      quartas: 1,
+      semifinal: 2,
+      terceiro_lugar: 3,
+      final: 4,
+    };
+    const faseDiff = (faseOrder[a.fase] || 99) - (faseOrder[b.fase] || 99);
+    if (faseDiff !== 0) return faseDiff;
+    return a.ordem - b.ordem;
+  });
   
   return (
     <MainLayout>
@@ -492,8 +556,8 @@ export default function Torneios() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-display-sm font-bold text-foreground">Torneios</h1>
-            <p className="text-muted-foreground">Gerencie torneios eliminatórios das modalidades</p>
+            <h1 className="text-display-sm font-bold text-foreground">Competições</h1>
+            <p className="text-muted-foreground">Gerencie competições eliminatórias das modalidades</p>
           </div>
 
           <div className="flex items-center gap-2">
@@ -505,16 +569,16 @@ export default function Torneios() {
               <DialogTrigger asChild>
                 <Button className="gap-2">
                   <Plus className="h-4 w-4" />
-                  Novo Torneio
+                  Nova Competição
                 </Button>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle>Criar Torneio</DialogTitle>
+                  <DialogTitle>Criar Competição</DialogTitle>
                 </DialogHeader>
               <div className="space-y-4 py-4">
                 <div className="space-y-2">
-                  <Label>Nome do Torneio</Label>
+                  <Label>Nome da Competição</Label>
                   <Input 
                     placeholder="Ex: Futebol Masculino"
                     value={createForm.nome}
@@ -577,7 +641,7 @@ export default function Torneios() {
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setIsCreating(false)}>Cancelar</Button>
-                <Button onClick={handleCreateTorneio}>Criar Torneio</Button>
+                <Button onClick={handleCreateTorneio}>Criar Competição</Button>
               </DialogFooter>
               </DialogContent>
             </Dialog>
@@ -585,17 +649,17 @@ export default function Torneios() {
         </div>
           
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Lista de Torneios */}
+          {/* Lista de Competições */}
           <Card className="lg:col-span-1">
             <CardHeader>
-              <CardTitle className="text-lg">Torneios</CardTitle>
-              <CardDescription>{torneios.length} torneio(s) cadastrado(s)</CardDescription>
+              <CardTitle className="text-lg">Competições</CardTitle>
+              <CardDescription>{torneios.length} competição(ões) cadastrada(s)</CardDescription>
             </CardHeader>
             <CardContent className="space-y-2 max-h-[500px] overflow-y-auto">
               {loading ? (
                 <p className="text-muted-foreground text-sm">Carregando...</p>
               ) : torneios.length === 0 ? (
-                <p className="text-muted-foreground text-sm">Nenhum torneio cadastrado</p>
+                <p className="text-muted-foreground text-sm">Nenhuma competição cadastrada</p>
               ) : (
                 torneios.map(t => (
                   <div 
@@ -627,7 +691,7 @@ export default function Torneios() {
                           </AlertDialogTrigger>
                           <AlertDialogContent>
                             <AlertDialogHeader>
-                              <AlertDialogTitle>Excluir torneio?</AlertDialogTitle>
+                              <AlertDialogTitle>Excluir competição?</AlertDialogTitle>
                               <AlertDialogDescription>
                                 Esta ação não pode ser desfeita. {t.status === 'finalizado' && 'A pontuação já aplicada NÃO será removida.'}
                               </AlertDialogDescription>
@@ -651,10 +715,10 @@ export default function Torneios() {
           {/* Visualização do Bracket */}
           <Card className="lg:col-span-2">
             <CardHeader>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <CardTitle className="text-lg">
-                    {selectedTorneio ? selectedTorneio.nome : 'Chave do Torneio'}
+                    {selectedTorneio ? selectedTorneio.nome : 'Chave da Competição'}
                   </CardTitle>
                   {selectedTorneio && (
                     <CardDescription>
@@ -663,54 +727,116 @@ export default function Torneios() {
                     </CardDescription>
                   )}
                 </div>
-                
-                {selectedTorneio && selectedTorneio.status === 'pendente' && confrontos.length === 0 && (
-                  <Button onClick={handleIniciarSorteio} className="gap-2">
-                    <Shuffle className="h-4 w-4" />
-                    Iniciar Sorteio
-                  </Button>
-                )}
-                
-                {sorteioEmAndamento && (
-                  <div className="flex items-center gap-3">
-                    <div className="text-sm text-muted-foreground">
-                      Posição {torneioService.getProximoNumeroSorteio(confrontos)} de 8
-                    </div>
-                    <Button 
-                      onClick={handleSortearProximo} 
-                      disabled={sorteando}
-                      className="gap-2 min-w-32"
-                    >
-                      {sorteando ? (
-                        <>
-                          <Dices className="h-4 w-4 animate-spin" />
-                          Sorteando...
-                        </>
-                      ) : (
-                        <>
-                          <Dices className="h-4 w-4" />
-                          Sortear
-                        </>
-                      )}
+                <div className="flex flex-wrap items-center gap-2">
+                  {selectedTorneio && (
+                    <Button variant="outline" onClick={handlePrintCompeticao} className="gap-2">
+                      <Printer className="h-4 w-4" />
+                      Imprimir
                     </Button>
-                  </div>
-                )}
+                  )}
+                  {selectedTorneio && selectedTorneio.status === 'pendente' && confrontos.length === 0 && (
+                    <Button onClick={handleIniciarSorteio} className="gap-2">
+                      <Shuffle className="h-4 w-4" />
+                      Iniciar Sorteio
+                    </Button>
+                  )}
+                  {sorteioEmAndamento && (
+                    <div className="flex items-center gap-3">
+                      <div className="text-sm text-muted-foreground">
+                        Posição {torneioService.getProximoNumeroSorteio(confrontos)} de 8
+                      </div>
+                      <Button
+                        onClick={handleSortearProximo}
+                        disabled={sorteando}
+                        className="gap-2 min-w-32"
+                      >
+                        {sorteando ? (
+                          <>
+                            <Dices className="h-4 w-4 animate-spin" />
+                            Sorteando...
+                          </>
+                        ) : (
+                          <>
+                            <Dices className="h-4 w-4" />
+                            Sortear
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  )}
+                </div>
               </div>
             </CardHeader>
+
             <CardContent>
               {!selectedTorneio ? (
                 <div className="flex items-center justify-center h-64 text-muted-foreground">
-                  <p>Selecione um torneio para visualizar a chave</p>
+                  <p>Selecione uma competição para visualizar a chave</p>
                 </div>
               ) : (
-                <TournamentBracket 
-                  confrontos={confrontos}
-                  equipes={equipes}
-                  onSelectWinner={selectedTorneio.status === 'em_andamento' ? handleSelectWinner : undefined}
-                  readOnly={selectedTorneio.status === 'finalizado'}
-                />
+                <Tabs defaultValue="chave" className="w-full">
+                  <TabsList>
+                    <TabsTrigger value="chave">Chave</TabsTrigger>
+                    <TabsTrigger value="disputas">Disputas</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="chave">
+                    <TournamentBracket
+                      confrontos={confrontos}
+                      equipes={equipes}
+                      onSelectWinner={selectedTorneio.status === 'em_andamento' ? handleSelectWinner : undefined}
+                      readOnly={selectedTorneio.status === 'finalizado'}
+                    />
+                  </TabsContent>
+                  <TabsContent value="disputas">
+                    {confrontosOrdenados.length === 0 ? (
+                      <div className="flex items-center justify-center h-40 text-muted-foreground">
+                        <p>Nenhuma disputa sorteada ainda</p>
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto rounded-lg border border-border">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Fase</TableHead>
+                              <TableHead className="text-center">Confronto</TableHead>
+                              <TableHead>Equipe A</TableHead>
+                              <TableHead>Equipe B</TableHead>
+                              <TableHead>Resultado</TableHead>
+                              <TableHead className="text-right">Data/Hora</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {confrontosOrdenados.map((confronto) => {
+                              const equipeA = getEquipeNome(confronto.equipe1_id);
+                              const equipeB = getEquipeNome(confronto.equipe2_id);
+                              const vencedor = confronto.vencedor_id ? getEquipeNome(confronto.vencedor_id) : null;
+                              const resultado = vencedor
+                                ? `Vencedor: ${vencedor}`
+                                : confronto.equipe1_id && confronto.equipe2_id
+                                  ? 'Pendente'
+                                  : 'Aguardando definição';
+                              return (
+                                <TableRow key={confronto.id}>
+                                  <TableCell className="font-medium">{getFaseLabel(confronto.fase)}</TableCell>
+                                  <TableCell className="text-center">{confronto.ordem}</TableCell>
+                                  <TableCell>{equipeA}</TableCell>
+                                  <TableCell>{equipeB}</TableCell>
+                                  <TableCell>{resultado}</TableCell>
+                                  <TableCell className="text-right">
+                                    {formatConfrontoDate(confronto.updated_at || confronto.created_at)}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
+                  </TabsContent>
+                </Tabs>
               )}
             </CardContent>
+
           </Card>
         </div>
       </div>

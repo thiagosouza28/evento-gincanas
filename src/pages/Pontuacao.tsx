@@ -11,6 +11,7 @@ import { Plus, Minus, History, Loader2, Trophy, Users, ListChecks, FileDown } fr
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { generatePontuacaoEquipePDF, generatePontuacaoGeralPDF } from '@/lib/pdfGenerator';
+import { useEventoNome } from '@/hooks/useEventoNome';
 import * as torneioService from '@/lib/torneioService';
 import type { Torneio } from '@/types/torneio';
 import type { Inscrito, EquipeComParticipantes } from '@/types';
@@ -130,6 +131,7 @@ const Pontuacao = () => {
   const { inscritos, loading: inscritosLoading } = useInscritos();
   const { sorteios, loading: sorteiosLoading } = useSorteios();
   const { config: systemConfig, loading: systemLoading } = useSystemConfig();
+  const { eventoNome } = useEventoNome();
   const [torneios, setTorneios] = useState<Torneio[]>([]);
   const [torneiosLoading, setTorneiosLoading] = useState(true);
 
@@ -166,7 +168,7 @@ const Pontuacao = () => {
           setTorneios(data);
         }
       } catch (error) {
-        console.error('Erro ao carregar torneios:', error);
+        console.error('Erro ao carregar competições:', error);
       } finally {
         if (active) {
           setTorneiosLoading(false);
@@ -317,14 +319,20 @@ const Pontuacao = () => {
   const totalPontos = pontuacoes.reduce((sum, p) => sum + p.pontos, 0);
 
   const handleExportPontuacaoGeral = async () => {
+    const pdfBranding = eventoNome
+      ? { eventName: eventoNome, logoUrl: '/icon.png' }
+      : undefined;
     toast.info('Gerando PDF geral...');
-    await generatePontuacaoGeralPDF(equipes, gincanas, torneios, pontuacoes);
+    await generatePontuacaoGeralPDF(equipes, gincanas, torneios, pontuacoes, pdfBranding);
     toast.success('PDF geral gerado com sucesso.');
   };
 
   const handleExportPontuacaoEquipe = async (equipe: EquipeComParticipantes) => {
+    const pdfBranding = eventoNome
+      ? { eventName: eventoNome, logoUrl: '/icon.png' }
+      : undefined;
     toast.info(`Gerando PDF da equipe ${equipe.nome}...`);
-    await generatePontuacaoEquipePDF(equipe, gincanas, torneios, pontuacoes);
+    await generatePontuacaoEquipePDF(equipe, gincanas, torneios, pontuacoes, pdfBranding);
     toast.success('PDF da equipe gerado com sucesso.');
   };
 

@@ -12,6 +12,9 @@ export interface Inscrito {
   isManual?: boolean; // Inscrito adicionado manualmente
   numeroOriginal?: string; // Número original do banco de dados externo
   numeroPulseira?: string; // Numero da pulseira (igual ao numero da lista)
+  loteId?: string | null;
+  loteExternoId?: string | null;
+  loteExternoNome?: string | null;
 }
 
 export interface Equipe {
@@ -82,10 +85,99 @@ export interface EquipeComParticipantes extends Equipe {
   pontuacaoTotal: number;
 }
 
+export interface Evento {
+  id: string;
+  nome: string;
+  dataInicio?: string | null;
+  dataFim?: string | null;
+  local?: string | null;
+  slug?: string | null;
+  status: 'ativo' | 'inativo';
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface Distrito {
+  id: string;
+  nome: string;
+  codigo?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface Igreja {
+  id: string;
+  nome: string;
+  distritoId?: string | null;
+  cidade?: string | null;
+  contato?: string | null;
+  diretorJovemNome?: string | null;
+  diretorJovemCpf?: string | null;
+  diretorJovemTelefone?: string | null;
+  diretorJovemEmail?: string | null;
+  diretorJovemCargo?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface Lote {
+  id: string;
+  eventoId: string;
+  nome: string;
+  valor: number;
+  inicio: string;
+  fim: string;
+  status: 'ativo' | 'inativo';
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface InscricaoEvento {
+  id: string;
+  eventoId: string;
+  whatsapp?: string | null;
+  total: number;
+  status: 'PENDING' | 'PAID' | 'CANCELLED';
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ParticipanteEvento {
+  id: string;
+  inscricaoId: string;
+  eventoId: string;
+  nome: string;
+  cpf: string;
+  nascimento?: string | null;
+  genero?: string | null;
+  distritoId?: string | null;
+  igrejaId?: string | null;
+  telefone?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface PagamentoEvento {
+  id: string;
+  inscricaoId: string;
+  provider: string;
+  providerPaymentId: string;
+  status: 'PENDING' | 'PAID' | 'CANCELLED';
+  copiaecola?: string | null;
+  qrcode?: string | null;
+  expiresAt?: string | null;
+  paidAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 // Utilitário para calcular idade
 export function calcularIdade(dataNascimento: string): number {
   const hoje = new Date();
   const nascimento = new Date(dataNascimento);
+  if (Number.isNaN(nascimento.getTime())) {
+    return 0;
+  }
   let idade = hoje.getFullYear() - nascimento.getFullYear();
   const mesAtual = hoje.getMonth();
   const mesNascimento = nascimento.getMonth();

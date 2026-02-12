@@ -184,7 +184,7 @@ serve(async (req) => {
     const whereClauses: string[] = [];
     const params: unknown[] = [];
     if (eventColumn && requestedEventId) {
-      whereClauses.push(`\`${eventColumn}\` = ?`);
+      whereClauses.push(`r.\`${eventColumn}\` = ?`);
       params.push(requestedEventId);
     }
 
@@ -212,7 +212,7 @@ serve(async (req) => {
       if (statusSet.size > 0) {
         const statusValues = Array.from(statusSet);
         const placeholders = statusValues.map(() => '?').join(',');
-        whereClauses.push(`UPPER(status) IN (${placeholders})`);
+        whereClauses.push(`UPPER(r.status) IN (${placeholders})`);
         params.push(...statusValues);
       }
     }
@@ -221,10 +221,13 @@ serve(async (req) => {
 
     // Fetch registrations - incluindo photoUrl explicitamente
     const result = await client.query(
-      `SELECT id, fullName, birthDate, ageYears, districtId, churchId, photoUrl, status, createdAt 
-       FROM Registration 
+      `SELECT r.id, r.fullName, r.birthDate, r.ageYears, r.districtId, r.churchId, r.photoUrl, r.status, r.createdAt,
+              o.pricingLotId AS lotId, el.name AS lotName, el.startsAt AS lotStartsAt, el.endsAt AS lotEndsAt
+       FROM Registration r
+       LEFT JOIN \`Order\` o ON o.id = r.orderId
+       LEFT JOIN EventLot el ON el.id = o.pricingLotId
        ${whereSql}
-       ORDER BY createdAt ASC 
+       ORDER BY r.createdAt ASC
        LIMIT 5000`,
       params
     );
@@ -272,6 +275,18 @@ serve(async (req) => {
         distrito: districtMap.get(row.districtId) || 'Não informado',
         fotoUrl: fotoUrl,
         status: row.status,
+        loteId: row.lotId || null,
+        loteNome: row.lotName || null,
+        loteInicio: row.lotStartsAt
+          ? (row.lotStartsAt instanceof Date
+              ? row.lotStartsAt.toISOString()
+              : String(row.lotStartsAt))
+          : null,
+        loteFim: row.lotEndsAt
+          ? (row.lotEndsAt instanceof Date
+              ? row.lotEndsAt.toISOString()
+              : String(row.lotEndsAt))
+          : null,
         createdAt: row.createdAt instanceof Date 
           ? row.createdAt.toISOString()
           : String(row.createdAt),

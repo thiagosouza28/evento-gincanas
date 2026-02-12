@@ -140,6 +140,9 @@ export type Database = {
           idade: number | null
           igreja: string | null
           is_manual: boolean | null
+          lote_externo_id: string | null
+          lote_externo_nome: string | null
+          lote_id: string | null
           nome: string
           numero: number
           numero_original: string | null
@@ -157,6 +160,9 @@ export type Database = {
           idade?: number | null
           igreja?: string | null
           is_manual?: boolean | null
+          lote_externo_id?: string | null
+          lote_externo_nome?: string | null
+          lote_id?: string | null
           nome: string
           numero: number
           numero_original?: string | null
@@ -174,6 +180,9 @@ export type Database = {
           idade?: number | null
           igreja?: string | null
           is_manual?: boolean | null
+          lote_externo_id?: string | null
+          lote_externo_nome?: string | null
+          lote_id?: string | null
           nome?: string
           numero?: number
           numero_original?: string | null
@@ -181,6 +190,352 @@ export type Database = {
           status_pagamento?: string | null
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      distritos: {
+        Row: {
+          codigo: string | null
+          created_at: string
+          id: string
+          nome: string
+          updated_at: string
+        }
+        Insert: {
+          codigo?: string | null
+          created_at?: string
+          id?: string
+          nome: string
+          updated_at?: string
+        }
+        Update: {
+          codigo?: string | null
+          created_at?: string
+          id?: string
+          nome?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      eventos: {
+        Row: {
+          created_at: string
+          data_fim: string | null
+          data_inicio: string | null
+          id: string
+          local: string | null
+          nome: string
+          slug: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          data_fim?: string | null
+          data_inicio?: string | null
+          id?: string
+          local?: string | null
+          nome: string
+          slug?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          data_fim?: string | null
+          data_inicio?: string | null
+          id?: string
+          local?: string | null
+          nome?: string
+          slug?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      igrejas: {
+        Row: {
+          cidade: string | null
+          contato: string | null
+          created_at: string
+          diretor_jovem_cargo: string | null
+          diretor_jovem_cpf: string | null
+          diretor_jovem_email: string | null
+          diretor_jovem_nome: string | null
+          diretor_jovem_telefone: string | null
+          distrito_id: string | null
+          id: string
+          nome: string
+          updated_at: string
+        }
+        Insert: {
+          cidade?: string | null
+          contato?: string | null
+          created_at?: string
+          diretor_jovem_cargo?: string | null
+          diretor_jovem_cpf?: string | null
+          diretor_jovem_email?: string | null
+          diretor_jovem_nome?: string | null
+          diretor_jovem_telefone?: string | null
+          distrito_id?: string | null
+          id?: string
+          nome: string
+          updated_at?: string
+        }
+        Update: {
+          cidade?: string | null
+          contato?: string | null
+          created_at?: string
+          diretor_jovem_cargo?: string | null
+          diretor_jovem_cpf?: string | null
+          diretor_jovem_email?: string | null
+          diretor_jovem_nome?: string | null
+          diretor_jovem_telefone?: string | null
+          distrito_id?: string | null
+          id?: string
+          nome?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "igrejas_distrito_id_fkey"
+            columns: ["distrito_id"]
+            isOneToOne: false
+            referencedRelation: "distritos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      inscricoes: {
+        Row: {
+          created_at: string
+          evento_id: string
+          id: string
+          status: string
+          total: number
+          updated_at: string
+          whatsapp: string | null
+        }
+        Insert: {
+          created_at?: string
+          evento_id: string
+          id?: string
+          status?: string
+          total?: number
+          updated_at?: string
+          whatsapp?: string | null
+        }
+        Update: {
+          created_at?: string
+          evento_id?: string
+          id?: string
+          status?: string
+          total?: number
+          updated_at?: string
+          whatsapp?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "inscricoes_evento_id_fkey"
+            columns: ["evento_id"]
+            isOneToOne: false
+            referencedRelation: "eventos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lotes: {
+        Row: {
+          created_at: string
+          evento_id: string
+          fim: string
+          id: string
+          inicio: string
+          nome: string
+          status: string
+          updated_at: string
+          valor: number
+        }
+        Insert: {
+          created_at?: string
+          evento_id: string
+          fim: string
+          id?: string
+          inicio: string
+          nome: string
+          status?: string
+          updated_at?: string
+          valor: number
+        }
+        Update: {
+          created_at?: string
+          evento_id?: string
+          fim?: string
+          id?: string
+          inicio?: string
+          nome?: string
+          status?: string
+          updated_at?: string
+          valor?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lotes_evento_id_fkey"
+            columns: ["evento_id"]
+            isOneToOne: false
+            referencedRelation: "eventos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pagamentos: {
+        Row: {
+          copiaecola: string | null
+          created_at: string
+          expires_at: string | null
+          id: string
+          inscricao_id: string
+          paid_at: string | null
+          provider: string
+          provider_payment_id: string
+          qrcode: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          copiaecola?: string | null
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          inscricao_id: string
+          paid_at?: string | null
+          provider: string
+          provider_payment_id: string
+          qrcode?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          copiaecola?: string | null
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          inscricao_id?: string
+          paid_at?: string | null
+          provider?: string
+          provider_payment_id?: string
+          qrcode?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pagamentos_inscricao_id_fkey"
+            columns: ["inscricao_id"]
+            isOneToOne: false
+            referencedRelation: "inscricoes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      participantes: {
+        Row: {
+          cpf: string
+          created_at: string
+          distrito_id: string | null
+          evento_id: string
+          genero: string | null
+          id: string
+          igreja_id: string | null
+          inscricao_id: string
+          nascimento: string | null
+          nome: string
+          telefone: string | null
+          updated_at: string
+        }
+        Insert: {
+          cpf: string
+          created_at?: string
+          distrito_id?: string | null
+          evento_id: string
+          genero?: string | null
+          id?: string
+          igreja_id?: string | null
+          inscricao_id: string
+          nascimento?: string | null
+          nome: string
+          telefone?: string | null
+          updated_at?: string
+        }
+        Update: {
+          cpf?: string
+          created_at?: string
+          distrito_id?: string | null
+          evento_id?: string
+          genero?: string | null
+          id?: string
+          igreja_id?: string | null
+          inscricao_id?: string
+          nascimento?: string | null
+          nome?: string
+          telefone?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "participantes_distrito_id_fkey"
+            columns: ["distrito_id"]
+            isOneToOne: false
+            referencedRelation: "distritos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "participantes_evento_id_fkey"
+            columns: ["evento_id"]
+            isOneToOne: false
+            referencedRelation: "eventos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "participantes_igreja_id_fkey"
+            columns: ["igreja_id"]
+            isOneToOne: false
+            referencedRelation: "igrejas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "participantes_inscricao_id_fkey"
+            columns: ["inscricao_id"]
+            isOneToOne: false
+            referencedRelation: "inscricoes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      whatsapp_sessions: {
+        Row: {
+          created_at: string
+          id: string
+          payload_json: Json
+          phone: string
+          state: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          payload_json?: Json
+          phone: string
+          state: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          payload_json?: Json
+          phone?: string
+          state?: string
+          updated_at?: string
         }
         Relationships: []
       }

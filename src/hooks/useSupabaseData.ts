@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { calcularIdade } from '@/types';
 import type { Inscrito, Equipe, Gincana, Pontuacao, Sorteio, EquipeComParticipantes } from '@/types';
 
 // ============== INSCRITOS ==============
@@ -29,17 +30,24 @@ export function useSupabaseInscritos() {
 
       const map = new Map<number, Inscrito>();
       for (const row of data || []) {
+        const dataNascimento = row.data_nascimento || '';
+        const idadeCalculada = dataNascimento
+          ? calcularIdade(dataNascimento)
+          : (row.idade || 0);
         map.set(row.numero, {
           numero: row.numero,
           nome: row.nome,
-          dataNascimento: row.data_nascimento || '',
-          idade: row.idade || 0,
+          dataNascimento,
+          idade: idadeCalculada,
           igreja: row.igreja || 'Não informado',
           distrito: row.distrito || 'Não informado',
           fotoUrl: row.foto_url || undefined,
           statusPagamento: (row.status_pagamento as Inscrito['statusPagamento']) || 'PENDING',
           isManual: row.is_manual || false,
           numeroOriginal: row.numero_original || undefined,
+          loteId: row.lote_id || undefined,
+          loteExternoId: row.lote_externo_id || undefined,
+          loteExternoNome: row.lote_externo_nome || undefined,
           numeroPulseira: String(row.numero),
         });
       }
@@ -76,6 +84,9 @@ export function useSupabaseInscritos() {
         status_pagamento: inscrito.statusPagamento,
         is_manual: inscrito.isManual || false,
         numero_original: inscrito.numeroOriginal || null,
+        lote_id: inscrito.loteId || null,
+        lote_externo_id: inscrito.loteExternoId || null,
+        lote_externo_nome: inscrito.loteExternoNome || null,
         numero_pulseira: String(inscrito.numero),
       }, { onConflict: 'user_id,numero' });
 

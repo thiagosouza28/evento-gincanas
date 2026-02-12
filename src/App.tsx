@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import Dashboard from "./pages/Dashboard";
@@ -21,6 +21,13 @@ import Torneios from "./pages/Torneios";
 import Premiacao from "./pages/Premiacao";
 import PublicoPremiacao from "./pages/PublicoPremiacao";
 import Relatorio from "./pages/Relatorio";
+import InscricaoPublica from "./pages/InscricaoPublica";
+import EventosAdmin from "./pages/EventosAdmin";
+import DistritosAdmin from "./pages/DistritosAdmin";
+import IgrejasAdmin from "./pages/IgrejasAdmin";
+import IgrejasInscritasAdmin from "./pages/IgrejasInscritasAdmin";
+import LotesAdmin from "./pages/LotesAdmin";
+import RelatoriosAdmin from "./pages/RelatoriosAdmin";
 import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 
@@ -37,10 +44,12 @@ const App = () => (
             {/* Public routes */}
             <Route path="/auth" element={<Auth />} />
             <Route path="/publico" element={<PublicoSorteio />} />
-            <Route path="/publico-torneio" element={<PublicoTorneio />} />
+            <Route path="/publico-competicao" element={<PublicoTorneio />} />
+            <Route path="/publico-torneio" element={<Navigate to="/publico-competicao" replace />} />
             <Route path="/publico-premiacao" element={<PublicoPremiacao />} />
             <Route path="/publico-podio" element={<PublicoPodio />} />
             <Route path="/popup" element={<SorteioPopup />} />
+            <Route path="/inscricao/:slug" element={<InscricaoPublica />} />
             
             {/* Protected routes */}
             <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
@@ -48,11 +57,19 @@ const App = () => (
             <Route path="/inscritos" element={<ProtectedRoute><Inscritos /></ProtectedRoute>} />
             <Route path="/equipes" element={<ProtectedRoute><Equipes /></ProtectedRoute>} />
             <Route path="/gincanas" element={<ProtectedRoute><Gincanas /></ProtectedRoute>} />
-            <Route path="/torneios" element={<ProtectedRoute><Torneios /></ProtectedRoute>} />
+            <Route path="/competicoes" element={<ProtectedRoute><Torneios /></ProtectedRoute>} />
+            <Route path="/torneios" element={<Navigate to="/competicoes" replace />} />
             <Route path="/premiacao" element={<ProtectedRoute><Premiacao /></ProtectedRoute>} />
             <Route path="/pontuacao" element={<ProtectedRoute><Pontuacao /></ProtectedRoute>} />
             <Route path="/podio" element={<ProtectedRoute><Podio /></ProtectedRoute>} />
             <Route path="/relatorio" element={<ProtectedRoute><Relatorio /></ProtectedRoute>} />
+            <Route path="/eventos" element={<ProtectedRoute><EventosAdmin /></ProtectedRoute>} />
+            <Route path="/distritos" element={<ProtectedRoute><DistritosAdmin /></ProtectedRoute>} />
+            <Route path="/igrejas" element={<ProtectedRoute><IgrejasAdmin /></ProtectedRoute>} />
+            <Route path="/igrejas-inscritas" element={<ProtectedRoute><IgrejasInscritasAdmin /></ProtectedRoute>} />
+            <Route path="/lotes" element={<ProtectedRoute><LotesAdmin /></ProtectedRoute>} />
+            <Route path="/inscricoes" element={<Navigate to="/inscritos" replace />} />
+            <Route path="/relatorios-eventos" element={<ProtectedRoute><RelatoriosAdmin /></ProtectedRoute>} />
             <Route path="/configuracoes" element={<ProtectedRoute><Configuracoes /></ProtectedRoute>} />
             
             {/* Catch-all */}

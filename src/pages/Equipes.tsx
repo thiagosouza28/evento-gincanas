@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { useEquipes, useEquipesComParticipantes, useGincanas, useSorteios, useInscritos } from '@/hooks/useDatabase';
+import { useEventoNome } from '@/hooks/useEventoNome';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Users, Edit2, Loader2, User, FileDown, Trash2, Plus, Upload, X, ImageIcon } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -22,6 +23,7 @@ const Equipes = () => {
   const { saveEquipe, deleteEquipe } = useEquipes();
   const { sorteios } = useSorteios();
   const { getInscrito } = useInscritos();
+  const { eventoNome } = useEventoNome();
   const [selectedEquipe, setSelectedEquipe] = useState<Equipe | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
@@ -201,16 +203,24 @@ const Equipes = () => {
       .filter((inscrito): inscrito is Inscrito => inscrito !== undefined);
   };
 
+  const pdfBranding = eventoNome || gincanaAtiva?.nome
+    ? {
+        eventName: eventoNome || gincanaAtiva?.nome,
+        subtitle: eventoNome ? gincanaAtiva?.nome : undefined,
+        logoUrl: '/icon.png',
+      }
+    : undefined;
+
   const handleDownloadPDF = async (equipe: typeof equipes[0]) => {
     const participantes = getParticipantesEquipe(equipe.id);
     toast.info('Gerando PDF...');
-    await generateTeamParticipantsPDF(equipe, participantes);
+    await generateTeamParticipantsPDF(equipe, participantes, pdfBranding);
     toast.success('PDF gerado com sucesso!');
   };
 
   const handleDownloadAllPDF = async () => {
     toast.info('Gerando PDF de todas as equipes...');
-    await generateAllTeamsPDF(equipes, getParticipantesEquipe);
+    await generateAllTeamsPDF(equipes, getParticipantesEquipe, pdfBranding);
     toast.success('PDF gerado com sucesso!');
   };
 

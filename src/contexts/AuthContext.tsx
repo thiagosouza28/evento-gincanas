@@ -51,7 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
         setSession(session);
-        setUser(session?.user ?? null);
+        setUser(session?.user || null);
 
         // Defer profile fetch with setTimeout to avoid deadlock
         if (session?.user) {
@@ -67,7 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // THEN check for existing session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
-      setUser(session?.user ?? null);
+      setUser(session?.user || null);
       
       if (session?.user) {
         fetchProfile(session.user.id).then(setProfile);

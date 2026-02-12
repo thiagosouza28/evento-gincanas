@@ -14,6 +14,11 @@ import {
   Swords,
   BarChart3,
   Gift,
+  Calendar,
+  MapPin,
+  Church,
+  Layers,
+  FileText,
   LogOut,
   User
 } from 'lucide-react';
@@ -27,11 +32,17 @@ const navItems = [
   { to: '/inscritos', icon: Users, label: 'Inscritos' },
   { to: '/equipes', icon: Users2, label: 'Equipes' },
   { to: '/gincanas', icon: Trophy, label: 'Gincanas' },
-  { to: '/torneios', icon: Swords, label: 'Torneios' },
+  { to: '/competicoes', icon: Swords, label: 'Competições' },
   { to: '/premiacao', icon: Gift, label: 'Premiação' },
   { to: '/pontuacao', icon: Medal, label: 'Pontuação' },
   { to: '/podio', icon: Trophy, label: 'Pódio' },
-  { to: '/relatorio', icon: BarChart3, label: 'Relatório' },
+  { to: '/relatorio', icon: BarChart3, label: 'Relatório Pontuação' },
+  { to: '/eventos', icon: Calendar, label: 'Eventos' },
+  { to: '/distritos', icon: MapPin, label: 'Distritos' },
+  { to: '/igrejas', icon: Church, label: 'Igrejas' },
+  { to: '/igrejas-inscritas', icon: Church, label: 'Igrejas com inscrições' },
+  { to: '/lotes', icon: Layers, label: 'Lotes' },
+  { to: '/relatorios-eventos', icon: FileText, label: 'Relatórios' },
   { to: '/configuracoes', icon: Settings, label: 'Configurações' },
 ];
 
@@ -136,4 +147,7 @@ export function Sidebar() {
     </aside>
   );
 }
+
+
+
 

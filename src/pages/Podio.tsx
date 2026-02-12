@@ -5,11 +5,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { generatePodioPDF } from '@/lib/pdfGenerator';
+import { useEventoNome } from '@/hooks/useEventoNome';
 import { toast } from 'sonner';
 
 const Podio = () => {
   const { equipes, loading: equipesLoading } = useEquipesComParticipantes();
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const { eventoNome } = useEventoNome();
   const [showPoints, setShowPoints] = useState(() => {
     const stored = localStorage.getItem('podio-show-points');
     return stored ? stored === 'true' : true;
@@ -33,7 +35,10 @@ const Podio = () => {
 
   const handleExportPDF = async () => {
     try {
-      await generatePodioPDF(equipes, 'Pontuação Geral');
+      const pdfBranding = eventoNome
+        ? { eventName: eventoNome, logoUrl: '/icon.png' }
+        : undefined;
+      await generatePodioPDF(equipes, 'Pontuação Geral', pdfBranding);
       toast.success('PDF do pódio gerado com sucesso!');
     } catch (error) {
       toast.error('Erro ao gerar PDF do pódio');

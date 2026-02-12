@@ -45,7 +45,7 @@ const PublicoTorneio = () => {
     setIsConnected(true);
 
     torneioChannelRef.current.onmessage = (event: MessageEvent<TorneioSorteioData>) => {
-      console.log('Torneio sorteio broadcast recebido:', event.data);
+      console.log('Competição sorteio broadcast recebido:', event.data);
       
       const { type, posicao, equipe, torneioNome, confrontos } = event.data;
 
@@ -85,7 +85,7 @@ const PublicoTorneio = () => {
         const isFinalSorteio = posicao === 8;
 
         if (isFinalSorteio) {
-          // No ??ltimo sorteio, mostra o resumo ap??s a anima????o da 2a equipe
+          // No último sorteio, mostra o resumo após a animação da 2ª equipe
           resumoTimeoutRef.current = setTimeout(() => {
             setTorneioPopup(prev => ({
               ...prev,
@@ -151,7 +151,7 @@ const PublicoTorneio = () => {
       <div className="text-center mb-8">
         <div className="flex items-center justify-center gap-3 mb-2">
           <Trophy className="h-10 w-10 text-warning" />
-          <h1 className="text-display-sm font-bold text-foreground">Sorteio de Torneio</h1>
+          <h1 className="text-display-sm font-bold text-foreground">Sorteio de Competição</h1>
         </div>
         <p className="text-lg text-muted-foreground">
           {torneioPopup.torneioNome || 'Aguardando início do sorteio...'}
@@ -165,7 +165,7 @@ const PublicoTorneio = () => {
             <Trophy className="h-16 w-16 text-muted-foreground/50" />
           </div>
           <p className="text-muted-foreground">
-            Aguardando início do sorteio dos confrontos...
+            Aguardando início do sorteio da competição...
           </p>
         </div>
       )}
