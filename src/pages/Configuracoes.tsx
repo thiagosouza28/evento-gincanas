@@ -9,9 +9,9 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { useApiConfig, useDatabase, useOnlineStatus, useSystemConfig } from '@/hooks/useDatabase';
 import { Wifi, WifiOff, RefreshCw, CheckCircle2, AlertCircle, Loader2, Database, Settings } from 'lucide-react';
 import { motion } from 'framer-motion';
-import * as db from '@/lib/database';
 import { fetchEventos, syncInscritos, testApiConnection } from '@/lib/apiSync';
 import { toast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
 
 const Configuracoes = () => {
   const { config, saveConfig, loading: configLoading } = useApiConfig();
@@ -29,6 +29,11 @@ const Configuracoes = () => {
   const [eventos, setEventos] = useState<Array<{ id: string; name: string }>>([]);
   const [eventosLoading, setEventosLoading] = useState(false);
   const [syncStatuses, setSyncStatuses] = useState<Array<'PAID' | 'PENDING' | 'CANCELLED'>>(['PAID', 'PENDING', 'CANCELLED']);
+  const [resetToken, setResetToken] = useState('');
+  const [resetPhrase, setResetPhrase] = useState('');
+  const [resetting, setResetting] = useState(false);
+
+  const RESET_CONFIRM_PHRASE = 'ZERAR TUDO';
 
   useEffect(() => {
     if (systemConfig) {
@@ -145,35 +150,47 @@ const Configuracoes = () => {
   };
 
   const handleResetData = async () => {
-    if (!confirm('⚠️ ATENÇÃO: Isso irá apagar TODOS os dados do sistema (inscritos, equipes, sorteios, gincanas, pontuações). Esta ação NÃO pode ser desfeita. Deseja continuar?')) {
+    if (resetting) return;
+
+    const normalizedPhrase = resetPhrase.trim().toUpperCase();
+    if (normalizedPhrase !== RESET_CONFIRM_PHRASE) {
+      toast.error(`Digite "${RESET_CONFIRM_PHRASE}" para confirmar.`);
       return;
     }
-    
-    // Segunda confirmação para segurança
-    if (!confirm('Última confirmação: Todos os dados serão perdidos permanentemente. Confirmar exclusão?')) {
+    if (!resetToken.trim()) {
+      toast.error('Informe o token de reset.');
       return;
     }
-    
+
+    if (!confirm('ATENCAO: Isso vai apagar TODOS os dados do sistema. Esta acao NAO pode ser desfeita. Deseja continuar?')) {
+      return;
+    }
+    if (!confirm('Ultima confirmacao: todo o sistema sera zerado. Confirmar exclusao total?')) {
+      return;
+    }
+
     try {
-      // Deletar completamente o banco de dados IndexedDB
-      const dbInstance = await db.getDB();
-      await dbInstance.clear('inscritos');
-      await dbInstance.clear('equipes');
-      await dbInstance.clear('sorteios');
-      await dbInstance.clear('gincanas');
-      await dbInstance.clear('pontuacoes');
-      await dbInstance.clear('syncQueue');
-      await dbInstance.clear('config');
-      
-      // Fechar conexão e deletar o banco completamente
-      dbInstance.close();
-      await indexedDB.deleteDatabase('gincana-db');
-      
-      alert('✅ Todos os dados foram apagados com sucesso!');
-      window.location.reload();
+      setResetting(true);
+      const { error } = await supabase.functions.invoke('admin-reset', {
+        body: { confirm: RESET_CONFIRM_PHRASE },
+        headers: { 'x-reset-token': resetToken.trim() },
+      });
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      localStorage.removeItem('apiConfig');
+      localStorage.removeItem('systemConfig');
+
+      toast.success('Sistema zerado com sucesso. Voce sera desconectado.');
+      await supabase.auth.signOut();
+      window.location.href = '/auth';
     } catch (error) {
-      console.error('Erro ao limpar dados:', error);
-      alert('Erro ao limpar dados. Tente novamente.');
+      console.error('Erro ao resetar sistema:', error);
+      toast.error(error instanceof Error ? error.message : 'Erro ao resetar sistema');
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -444,16 +461,46 @@ const Configuracoes = () => {
             <CardHeader>
               <CardTitle className="text-destructive">Zona de Perigo</CardTitle>
               <CardDescription>
-                Ações irreversíveis que afetam todos os dados do sistema
+                Acoes irreversiveis que apagam dados do sistema (nao remove tabelas)
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              <Button 
-                variant="destructive" 
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="reset-token">Token de reset (admin)</Label>
+                <Input
+                  id="reset-token"
+                  type="password"
+                  value={resetToken}
+                  onChange={(e) => setResetToken(e.target.value)}
+                  placeholder="Informe o token de reset"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Configure `SYSTEM_RESET_TOKEN` nas secrets das funcoes do Supabase.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="reset-confirm">Digite {RESET_CONFIRM_PHRASE} para confirmar</Label>
+                <Input
+                  id="reset-confirm"
+                  value={resetPhrase}
+                  onChange={(e) => setResetPhrase(e.target.value)}
+                  placeholder={RESET_CONFIRM_PHRASE}
+                />
+              </div>
+              <Button
+                variant="destructive"
                 onClick={handleResetData}
                 className="w-full"
+                disabled={resetting || !resetToken.trim() || resetPhrase.trim().toUpperCase() !== RESET_CONFIRM_PHRASE}
               >
-                Resetar Todos os Dados
+                {resetting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Resetando sistema...
+                  </>
+                ) : (
+                  'Resetar Todos os Dados'
+                )}
               </Button>
             </CardContent>
           </Card>

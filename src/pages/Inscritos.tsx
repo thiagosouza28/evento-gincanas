@@ -41,7 +41,7 @@ const getValidStatus = (status: string | undefined): string => {
 };
 
 type SortOption = 'numero-asc' | 'numero-desc' | 'nome-asc' | 'nome-desc';
-type AgeFilter = 'all' | 'lt10' | 'gte10';
+type AgeFilter = 'all' | 'lte9' | 'gte10';
 type LoteRow = {
   id: string;
   nome: string;
@@ -252,7 +252,7 @@ const Inscritos = () => {
           : (Number.isFinite(i.idade) ? i.idade : null);
         if (idadeCalculada === null) return false;
         if (!i.dataNascimento && idadeCalculada === 0) return false;
-        return ageFilter === 'lt10' ? idadeCalculada <= 10 : idadeCalculada > 10;
+        return ageFilter === 'lte9' ? idadeCalculada <= 9 : idadeCalculada >= 10;
       });
     }
 
@@ -547,8 +547,8 @@ const Inscritos = () => {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Todas as idades</SelectItem>
-                    <SelectItem value="lt10">10 anos ou menos</SelectItem>
-                    <SelectItem value="gte10">Maiores de 10</SelectItem>
+                    <SelectItem value="lte9">9 anos ou menos</SelectItem>
+                    <SelectItem value="gte10">10 anos ou mais</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

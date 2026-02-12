@@ -46,7 +46,7 @@ interface LoteRow {
   eventos?: { nome: string } | null;
 }
 
-type AgeFilter = 'all' | 'lte10' | 'gt10';
+type AgeFilter = 'all' | 'lte9' | 'gte10';
 
 const statusVariant = (status: string) => {
   if (status === 'PAID') return 'default';
@@ -163,8 +163,8 @@ const InscricoesAdmin = () => {
       if (!participante.nascimento) return false;
       const idade = calcularIdade(participante.nascimento);
       if (!Number.isFinite(idade)) return false;
-      if (ageFilter === 'lte10' && idade > 10) return false;
-      if (ageFilter === 'gt10' && idade <= 10) return false;
+      if (ageFilter === 'lte9' && idade > 9) return false;
+      if (ageFilter === 'gte10' && idade < 10) return false;
     }
 
     if (selectedLote !== 'all') {
@@ -320,8 +320,8 @@ const InscricoesAdmin = () => {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Todas as idades</SelectItem>
-                    <SelectItem value="lte10">10 anos ou menos</SelectItem>
-                    <SelectItem value="gt10">Maiores de 10</SelectItem>
+                    <SelectItem value="lte9">9 anos ou menos</SelectItem>
+                    <SelectItem value="gte10">10 anos ou mais</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
