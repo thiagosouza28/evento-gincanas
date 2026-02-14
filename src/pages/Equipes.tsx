@@ -138,11 +138,11 @@ const Equipes = () => {
 
     const numero = Number(editForm.numero);
     if (!Number.isInteger(numero) || numero <= 0) {
-      toast.error('O numero da equipe e obrigatorio');
+      toast.error('O número da equipe é obrigatório');
       return;
     }
     if (isNumeroDuplicado(numero, selectedEquipe.id)) {
-      toast.error('Ja existe uma equipe com este numero');
+      toast.error('Já existe uma equipe com este número');
       return;
     }
     
@@ -172,11 +172,11 @@ const Equipes = () => {
 
     const numero = Number(createForm.numero);
     if (!Number.isInteger(numero) || numero <= 0) {
-      toast.error('O numero da equipe e obrigatorio');
+      toast.error('O número da equipe é obrigatório');
       return;
     }
     if (isNumeroDuplicado(numero)) {
-      toast.error('Ja existe uma equipe com este numero');
+      toast.error('Já existe uma equipe com este número');
       return;
     }
 
@@ -289,7 +289,7 @@ const Equipes = () => {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="create-numero">Numero da Equipe *</Label>
+                    <Label htmlFor="create-numero">Número da Equipe *</Label>
                     <Input
                       id="create-numero"
                       type="number"
@@ -594,7 +594,7 @@ const Equipes = () => {
                 />
               </div>
               <div>
-                <Label htmlFor="edit-numero">Numero da Equipe *</Label>
+                <Label htmlFor="edit-numero">Número da Equipe *</Label>
                 <Input
                   id="edit-numero"
                   type="number"

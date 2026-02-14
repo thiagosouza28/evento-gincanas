@@ -64,7 +64,7 @@ const steps = [
   { id: 1, title: "CPF", subtitle: "Informe o CPF do pagador" },
   { id: 2, title: "Unidade", subtitle: "Escolha distrito e igreja" },
   { id: 3, title: "Participantes", subtitle: "Dados individuais" },
-  { id: 4, title: "Revisao", subtitle: "Revise os dados" },
+  { id: 4, title: "Revisão", subtitle: "Revise os dados" },
 ];
 
 function normalizeCpf(raw: string) {
@@ -161,7 +161,7 @@ export default function InscricaoPublica() {
         );
         if (!response.ok) {
           const text = await response.text();
-          throw new Error(text || "Evento nao encontrado");
+          throw new Error(text || "Evento não encontrado");
         }
         const data = await response.json();
         if (!isMounted) return;
@@ -301,12 +301,12 @@ export default function InscricaoPublica() {
   function handleNextFromCpf() {
     setStepError(null);
     if (!isValidCpf(responsavelCpf)) {
-      setStepError("CPF invalido. Informe 11 digitos.");
+      setStepError("CPF inválido. Informe 11 dígitos.");
       return;
     }
     const whatsappDigits = responsavelWhatsapp.replace(/\D/g, "");
     if (whatsappDigits.length < 10) {
-      setStepError("Informe um WhatsApp valido com DDD.");
+      setStepError("Informe um WhatsApp válido com DDD.");
       return;
     }
     setStep(2);
@@ -335,7 +335,7 @@ export default function InscricaoPublica() {
 
     const cpfs = participantes.map((p) => normalizeCpf(p.cpf));
     if (cpfs.some((cpf) => !isValidCpf(cpf))) {
-      setStepError("Existe CPF invalido. Verifique os participantes.");
+      setStepError("Existe CPF inválido. Verifique os participantes.");
       return;
     }
 
@@ -428,7 +428,7 @@ export default function InscricaoPublica() {
   if (loadError || !event) {
     return (
       <div className="min-h-screen bg-slate-100 flex items-center justify-center text-slate-600">
-        {loadError || "Evento nao encontrado."}
+        {loadError || "Evento não encontrado."}
       </div>
     );
   }
@@ -481,7 +481,7 @@ export default function InscricaoPublica() {
             </div>
             <div className="text-right">
               <p className="text-xs uppercase tracking-wide text-slate-500">
-                Valor da inscricao
+                Valor da inscrição
               </p>
               <p className="text-2xl font-bold text-slate-900">
                 {formatCurrencyBR(lote?.valor || 0)}
@@ -538,14 +538,14 @@ export default function InscricaoPublica() {
 
         {step === 1 ? (
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="text-lg font-semibold text-slate-900">Identificacao</h2>
+            <h2 className="text-lg font-semibold text-slate-900">Identificação</h2>
             <p className="text-sm text-slate-500">
-              Informe o CPF e o WhatsApp do responsavel financeiro pela inscricao.
+              Informe o CPF e o WhatsApp do responsável financeiro pela inscrição.
             </p>
             <div className="mt-6 grid gap-4">
               <div>
                 <label className="text-sm font-medium text-slate-700">
-                  CPF do Responsavel
+                  CPF do Responsável
                 </label>
                 <input
                   type="text"
@@ -555,7 +555,7 @@ export default function InscricaoPublica() {
                   onChange={(event) => setResponsavelCpf(maskCpf(event.target.value))}
                 />
                 {responsavelStatus === "loading" ? (
-                  <p className="mt-2 text-xs text-slate-400">Buscando responsavel...</p>
+                  <p className="mt-2 text-xs text-slate-400">Buscando responsável...</p>
                 ) : null}
                 {responsavelStatus === "found" && responsavelInfo ? (
                   <p className="mt-2 text-xs text-emerald-600">
@@ -575,7 +575,7 @@ export default function InscricaoPublica() {
               </div>
               <div>
                 <label className="text-sm font-medium text-slate-700">
-                  WhatsApp do Responsavel
+                  WhatsApp do Responsável
                 </label>
                 <input
                   type="text"
@@ -642,14 +642,14 @@ export default function InscricaoPublica() {
                 </select>
                 {lockIgreja ? (
                   <p className="mt-2 text-xs text-emerald-600">
-                    Igreja vinculada ao responsavel. Alteracao bloqueada.
+                    Igreja vinculada ao responsável. Alteração bloqueada.
                   </p>
                 ) : null}
               </div>
               <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
                 <div>
                   <p className="text-sm font-medium text-slate-700">Participantes</p>
-                  <p className="text-xs text-slate-400">Numero de participantes</p>
+                  <p className="text-xs text-slate-400">Número de participantes</p>
                 </div>
                 <div className="flex items-center gap-3">
                   <button
@@ -687,7 +687,7 @@ export default function InscricaoPublica() {
                   className="rounded-xl bg-blue-600 px-6 py-2 text-sm font-semibold text-white hover:bg-blue-700"
                   onClick={handleNextFromUnidade}
                 >
-                  Avancar
+                  Avançar
                 </button>
               </div>
             </div>
@@ -700,13 +700,13 @@ export default function InscricaoPublica() {
               Detalhes dos Participantes
             </h2>
             <p className="text-sm text-slate-500">
-              Preencha as informacoes de quem ira ao evento.
+              Preencha as informações de quem irá ao evento.
             </p>
 
             <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
               <div className="flex flex-wrap gap-6">
                 <div>
-                  <p className="text-xs uppercase text-slate-400">CPF Responsavel</p>
+                  <p className="text-xs uppercase text-slate-400">CPF Responsável</p>
                   <p className="font-semibold text-slate-700">{responsavelCpf}</p>
                 </div>
                 <div>
@@ -797,7 +797,7 @@ export default function InscricaoPublica() {
                       </div>
                       <div>
                         <label className="text-sm font-medium text-slate-700">
-                          Genero
+                          Gênero
                         </label>
                         <select
                           className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
@@ -840,7 +840,7 @@ export default function InscricaoPublica() {
                 className="rounded-xl bg-blue-600 px-6 py-2 text-sm font-semibold text-white hover:bg-blue-700"
                 onClick={handleNextFromParticipantes}
               >
-                Revisar inscricoes
+                Revisar inscrições
               </button>
             </div>
           </div>
@@ -848,14 +848,14 @@ export default function InscricaoPublica() {
 
         {step === 4 ? (
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="text-lg font-semibold text-slate-900">Revisao dos dados</h2>
+            <h2 className="text-lg font-semibold text-slate-900">Revisão dos dados</h2>
             <p className="text-sm text-slate-500">
-              Confira as informacoes antes do pagamento.
+              Confira as informações antes do pagamento.
             </p>
 
             <div className="mt-6 space-y-4">
               <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <p className="text-xs uppercase text-slate-400">Responsavel financeiro</p>
+                <p className="text-xs uppercase text-slate-400">Responsável financeiro</p>
                 <p className="text-sm font-semibold text-slate-700">
                   CPF: {responsavelCpf}
                 </p>
@@ -878,7 +878,7 @@ export default function InscricaoPublica() {
                       PIX (Mercado Pago)
                     </p>
                     <p className="text-xs text-slate-500">
-                      Pagamento automatico via Pix
+                      Pagamento automático via Pix
                     </p>
                   </div>
                   <div className="h-4 w-4 rounded-full border-4 border-blue-600 bg-white" />
@@ -952,7 +952,7 @@ export default function InscricaoPublica() {
                 <Check className="h-6 w-6" />
               </div>
               <p className="mt-4 text-xs uppercase text-slate-400">
-                Aguardando confirmacao
+                Aguardando confirmação
               </p>
               <h2 className="text-xl font-semibold text-slate-900">Pedido Gerado!</h2>
               <p className="text-sm text-slate-500">
@@ -1015,7 +1015,7 @@ export default function InscricaoPublica() {
                     <span className="font-semibold text-slate-700">{event.nome}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span>Valor por inscricao</span>
+                    <span>Valor por inscrição</span>
                     <span className="font-semibold text-slate-700">
                       {formatCurrencyBR(lote?.valor || 0)}
                     </span>

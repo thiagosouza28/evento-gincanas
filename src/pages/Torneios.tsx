@@ -359,8 +359,8 @@ export default function Torneios() {
 
     if (!hasMinTeams) {
       toast({
-        title: 'Numero minimo de equipes nao atingido',
-        description: `Necessario ter pelo menos ${minEquipes} equipes para aplicar pontuacao.`,
+        title: 'Número mínimo de equipes não atingido',
+        description: `Necessário ter pelo menos ${minEquipes} equipes para aplicar pontuação.`,
         variant: 'destructive',
       });
 

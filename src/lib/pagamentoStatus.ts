@@ -28,11 +28,11 @@ export function getMensagemBloqueioSorteioEquipe(status: string | null | undefin
   const normalized = normalizePagamentoStatus(status);
 
   if (normalized === 'PENDING') {
-    return 'Pagamento pendente. Este participante nao pode ser sorteado para uma equipe.';
+    return 'Pagamento pendente. Este participante não pode ser sorteado para uma equipe.';
   }
 
   if (normalized === 'CANCELLED') {
-    return 'Pagamento cancelado. Este participante nao pode ser sorteado para uma equipe.';
+    return 'Pagamento cancelado. Este participante não pode ser sorteado para uma equipe.';
   }
 
   return null;

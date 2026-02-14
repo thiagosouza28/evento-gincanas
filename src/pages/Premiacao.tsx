@@ -468,7 +468,7 @@ export default function Premiacao() {
                     <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
                       {participantesSorteados.map((numero, index) => {
                         const participante = inscritos.get(numero);
-                        const igreja = participante?.igreja || 'Igreja nao informada';
+                        const igreja = participante?.igreja || 'Igreja não informada';
                         const distrito = participante?.distrito ? ` - ${participante.distrito}` : '';
                         return (
                           <div 

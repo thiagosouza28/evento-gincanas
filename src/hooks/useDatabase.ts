@@ -105,7 +105,7 @@ export function useSystemConfig() {
         setConfig(DEFAULT_SYSTEM_CONFIG);
       }
     } catch (error) {
-      console.error('Erro ao carregar configuracao do sistema:', error);
+      console.error('Erro ao carregar configuração do sistema:', error);
       setConfig(DEFAULT_SYSTEM_CONFIG);
     } finally {
       setLoading(false);

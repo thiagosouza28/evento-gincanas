@@ -223,7 +223,7 @@ const SorteioPopup = () => {
         <div className="text-center pt-8">
           <h1 className="text-display-lg font-bold text-foreground">Sorteio de Equipes</h1>
           <p className="text-xl text-muted-foreground mt-2">
-            Distribuicao de participantes entre equipes
+            Distribuição de participantes entre equipes
           </p>
         </div>
 

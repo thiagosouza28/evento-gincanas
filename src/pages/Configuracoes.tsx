@@ -142,11 +142,11 @@ const Configuracoes = () => {
   const handleSaveSystemConfig = async () => {
     const value = Number(minEquipes);
     if (!Number.isFinite(value) || value < 1) {
-      toast.error('Informe um numero minimo valido');
+      toast.error('Informe um número mínimo válido');
       return;
     }
     await saveSystemConfig({ minEquipes: Math.floor(value) });
-    toast.success('Configuracao atualizada com sucesso');
+    toast.success('Configuração atualizada com sucesso');
   };
 
   const handleResetData = async () => {
@@ -162,10 +162,10 @@ const Configuracoes = () => {
       return;
     }
 
-    if (!confirm('ATENCAO: Isso vai apagar TODOS os dados do sistema. Esta acao NAO pode ser desfeita. Deseja continuar?')) {
+    if (!confirm('ATENÇÃO: Isso vai apagar TODOS os dados do sistema. Esta ação NÃO pode ser desfeita. Deseja continuar?')) {
       return;
     }
-    if (!confirm('Ultima confirmacao: todo o sistema sera zerado. Confirmar exclusao total?')) {
+    if (!confirm('Última confirmação: todo o sistema será zerado. Confirmar exclusão total?')) {
       return;
     }
 
@@ -183,7 +183,7 @@ const Configuracoes = () => {
       localStorage.removeItem('apiConfig');
       localStorage.removeItem('systemConfig');
 
-      toast.success('Sistema zerado com sucesso. Voce sera desconectado.');
+      toast.success('Sistema zerado com sucesso. Você será desconectado.');
       await supabase.auth.signOut();
       window.location.href = '/auth';
     } catch (error) {
@@ -357,12 +357,12 @@ const Configuracoes = () => {
                 Regras do Sistema
               </CardTitle>
               <CardDescription>
-                Defina o numero minimo de equipes para liberar pontuacao
+                Defina o número mínimo de equipes para liberar pontuação
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="min-equipes">Numero minimo de equipes</Label>
+                <Label htmlFor="min-equipes">Número mínimo de equipes</Label>
                 <Input
                   id="min-equipes"
                   type="number"
@@ -371,11 +371,11 @@ const Configuracoes = () => {
                   onChange={(e) => setMinEquipes(e.target.value)}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Enquanto houver menos equipes que este valor, lancamentos e descontos de pontos ficam bloqueados.
+                  Enquanto houver menos equipes que este valor, lançamentos e descontos de pontos ficam bloqueados.
                 </p>
               </div>
               <Button onClick={handleSaveSystemConfig} variant="outline" className="w-full">
-                Salvar Configuracao
+                Salvar Configuração
               </Button>
             </CardContent>
           </Card>
@@ -461,7 +461,7 @@ const Configuracoes = () => {
             <CardHeader>
               <CardTitle className="text-destructive">Zona de Perigo</CardTitle>
               <CardDescription>
-                Acoes irreversiveis que apagam dados do sistema (nao remove tabelas)
+                Ações irreversíveis que apagam dados do sistema (não remove tabelas)
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">

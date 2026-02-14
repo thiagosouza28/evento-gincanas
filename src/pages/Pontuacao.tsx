@@ -24,12 +24,12 @@ function normalizeText(value: string) {
     .trim();
 }
 
-const PARTICIPANTE_NAO_ENCONTRADO = 'Participante nao encontrado.';
+const PARTICIPANTE_NAO_ENCONTRADO = 'Participante não encontrado.';
 
 function findParticipanteByQuery(inscritos: Inscrito[], rawQuery: string) {
   const query = rawQuery.trim();
   if (!query) {
-    return { error: 'Informe o nome, numero ou pulseira do participante ou equipe.' };
+    return { error: 'Informe o nome, número ou pulseira do participante ou equipe.' };
   }
 
   const isNumeric = /^\d+$/.test(query);
@@ -54,7 +54,7 @@ function findParticipanteByQuery(inscritos: Inscrito[], rawQuery: string) {
     }
 
     if (matchesPulseira.length > 1) {
-      return { error: 'Mais de um participante encontrado para este numero de pulseira.' };
+      return { error: 'Mais de um participante encontrado para este número de pulseira.' };
     }
 
     return { error: PARTICIPANTE_NAO_ENCONTRADO };
@@ -62,7 +62,7 @@ function findParticipanteByQuery(inscritos: Inscrito[], rawQuery: string) {
 
   const normalizedQuery = normalizeText(query);
   if (!normalizedQuery) {
-    return { error: 'Informe o nome, numero ou pulseira do participante ou equipe.' };
+    return { error: 'Informe o nome, número ou pulseira do participante ou equipe.' };
   }
 
   const exactMatches = inscritos.filter((i) => normalizeText(i.nome) === normalizedQuery);
@@ -70,7 +70,7 @@ function findParticipanteByQuery(inscritos: Inscrito[], rawQuery: string) {
     return { participante: exactMatches[0] };
   }
   if (exactMatches.length > 1) {
-    return { error: 'Mais de um participante com este nome. Use numero ou pulseira.' };
+    return { error: 'Mais de um participante com este nome. Use número ou pulseira.' };
   }
 
   const partialMatches = inscritos.filter((i) => normalizeText(i.nome).includes(normalizedQuery));
@@ -78,7 +78,7 @@ function findParticipanteByQuery(inscritos: Inscrito[], rawQuery: string) {
     return { participante: partialMatches[0] };
   }
   if (partialMatches.length > 1) {
-    return { error: 'Mais de um participante encontrado. Seja mais especifico.' };
+    return { error: 'Mais de um participante encontrado. Seja mais específico.' };
   }
 
   return { error: PARTICIPANTE_NAO_ENCONTRADO };
@@ -87,7 +87,7 @@ function findParticipanteByQuery(inscritos: Inscrito[], rawQuery: string) {
 function findEquipeByQuery(equipes: EquipeComParticipantes[], rawQuery: string) {
   const query = rawQuery.trim();
   if (!query) {
-    return { error: 'Informe o nome ou numero da equipe.' };
+    return { error: 'Informe o nome ou número da equipe.' };
   }
 
   const isNumeric = /^\d+$/.test(query);
@@ -97,12 +97,12 @@ function findEquipeByQuery(equipes: EquipeComParticipantes[], rawQuery: string) 
     if (matchNumero) {
       return { equipe: matchNumero };
     }
-    return { error: 'Equipe nao encontrada.' };
+    return { error: 'Equipe não encontrada.' };
   }
 
   const normalizedQuery = normalizeText(query);
   if (!normalizedQuery) {
-    return { error: 'Informe o nome ou numero da equipe.' };
+    return { error: 'Informe o nome ou número da equipe.' };
   }
 
   const exactMatches = equipes.filter((e) => normalizeText(e.nome) === normalizedQuery);
@@ -110,7 +110,7 @@ function findEquipeByQuery(equipes: EquipeComParticipantes[], rawQuery: string) 
     return { equipe: exactMatches[0] };
   }
   if (exactMatches.length > 1) {
-    return { error: 'Mais de uma equipe com este nome. Seja mais especifico.' };
+    return { error: 'Mais de uma equipe com este nome. Seja mais específico.' };
   }
 
   const partialMatches = equipes.filter((e) => normalizeText(e.nome).includes(normalizedQuery));
@@ -118,10 +118,10 @@ function findEquipeByQuery(equipes: EquipeComParticipantes[], rawQuery: string) 
     return { equipe: partialMatches[0] };
   }
   if (partialMatches.length > 1) {
-    return { error: 'Mais de uma equipe encontrada. Seja mais especifico.' };
+    return { error: 'Mais de uma equipe encontrada. Seja mais específico.' };
   }
 
-  return { error: 'Equipe nao encontrada.' };
+  return { error: 'Equipe não encontrada.' };
 }
 
 const Pontuacao = () => {
@@ -215,7 +215,7 @@ const Pontuacao = () => {
         return;
       }
 
-      setSearchError(equipeResult.error || result.error || 'Participante ou equipe nao encontrada.');
+      setSearchError(equipeResult.error || result.error || 'Participante ou equipe não encontrada.');
       return;
     }
 
@@ -223,7 +223,7 @@ const Pontuacao = () => {
     const sorteiosParticipante = sorteios.filter((s) => s.numeroInscrito === participante.numero);
 
     if (sorteiosParticipante.length === 0) {
-      setSearchError('Participante ainda nao foi vinculado a uma equipe.');
+      setSearchError('Participante ainda não foi vinculado a uma equipe.');
       return;
     }
 
@@ -236,7 +236,7 @@ const Pontuacao = () => {
     const equipe = equipes.find((e) => e.id === equipeId);
 
     if (!equipe) {
-      setSearchError('Equipe do participante nao encontrada.');
+      setSearchError('Equipe do participante não encontrada.');
       return;
     }
 
@@ -246,12 +246,12 @@ const Pontuacao = () => {
 
   const handleAddPontos = async () => {
     if (!hasMinTeams) {
-      toast.error(`E necessario ter pelo menos ${minEquipes} equipes cadastradas.`);
+      toast.error(`É necessário ter pelo menos ${minEquipes} equipes cadastradas.`);
       return;
     }
 
     if (!selectedEquipe) {
-      toast.error('Identifique um participante ou equipe antes de lancar pontos.');
+      toast.error('Identifique um participante ou equipe antes de lançar pontos.');
       return;
     }
 
@@ -262,12 +262,12 @@ const Pontuacao = () => {
 
     const pontosNum = Number(pontos);
     if (!Number.isFinite(pontosNum) || pontosNum <= 0) {
-      toast.error('Informe um valor de pontos valido.');
+      toast.error('Informe um valor de pontos válido.');
       return;
     }
 
     if (isPenalty && selectedEquipe.pontuacaoTotal - pontosNum < 0) {
-      toast.error('A pontuacao da equipe nao pode ficar negativa.');
+      toast.error('A pontuação da equipe não pode ficar negativa.');
       return;
     }
 
@@ -279,7 +279,7 @@ const Pontuacao = () => {
       selectedParticipante?.numero
     );
     reloadEquipes();
-    toast.success('Pontuacao registrada com sucesso.');
+    toast.success('Pontuação registrada com sucesso.');
 
     resetForm();
     setIsDialogOpen(false);
@@ -342,8 +342,8 @@ const Pontuacao = () => {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-display-sm text-foreground">Pontuacao</h1>
-            <p className="text-muted-foreground">Pontuacao geral das equipes</p>
+            <h1 className="text-display-sm text-foreground">Pontuação</h1>
+            <p className="text-muted-foreground">Pontuação geral das equipes</p>
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -361,7 +361,7 @@ const Pontuacao = () => {
               disabled={!hasMinTeams}
             >
               <Plus className="h-4 w-4" />
-              Lancar Pontos
+              Lançar Pontos
             </Button>
           </div>
         </div>
@@ -369,7 +369,7 @@ const Pontuacao = () => {
         {!hasMinTeams && (
           <Card className="glass border-destructive/50">
             <CardContent className="pt-6 text-sm text-destructive">
-              E necessario ter pelo menos {minEquipes} equipes cadastradas para lancar ou descontar pontos. Atualmente: {equipes.length}.
+              É necessário ter pelo menos {minEquipes} equipes cadastradas para lançar ou descontar pontos. Atualmente: {equipes.length}.
             </CardContent>
           </Card>
         )}
@@ -393,7 +393,7 @@ const Pontuacao = () => {
                 <ListChecks className="h-5 w-5 text-success" />
               </div>
               <div>
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">Lancamentos</p>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Lançamentos</p>
                 <p className="text-2xl font-bold">{pontuacoes.length}</p>
               </div>
             </CardContent>
@@ -515,13 +515,13 @@ const Pontuacao = () => {
           <CardHeader>
             <div className="flex items-center gap-2">
               <History className="h-5 w-5 text-muted-foreground" />
-              <CardTitle>Historico de Lancamentos</CardTitle>
+              <CardTitle>Histórico de Lançamentos</CardTitle>
             </div>
           </CardHeader>
           <CardContent>
             {pontuacoes.length === 0 ? (
               <p className="text-center text-muted-foreground py-8">
-                Nenhum lancamento registrado
+                Nenhum lançamento registrado
               </p>
             ) : (
               <div className="custom-scrollbar space-y-3 max-h-96 overflow-y-auto pr-1">
@@ -623,7 +623,7 @@ const Pontuacao = () => {
               </div>
 
               <div>
-                <Label htmlFor="participante">Participante ou equipe (nome, numero ou pulseira)</Label>
+                <Label htmlFor="participante">Participante ou equipe (nome, número ou pulseira)</Label>
                 <div className="flex gap-2">
                   <Input
                     id="participante"
@@ -677,7 +677,7 @@ const Pontuacao = () => {
                         {selectedEquipe.nome} (Num. {selectedEquipe.numero})
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        Pontuacao atual: {selectedEquipe.pontuacaoTotal} pts
+                        Pontuação atual: {selectedEquipe.pontuacaoTotal} pts
                       </p>
                     </div>
                   </CardContent>
@@ -712,10 +712,10 @@ const Pontuacao = () => {
                 />
               </div>
               <div>
-                <Label htmlFor="observacao">Observacao (opcional)</Label>
+                <Label htmlFor="observacao">Observação (opcional)</Label>
                 <Input
                   id="observacao"
-                  placeholder="Ex: 1o lugar"
+                  placeholder="Ex: 1º lugar"
                   value={observacao}
                   onChange={(e) => setObservacao(e.target.value)}
                 />

@@ -419,7 +419,7 @@ const InscricoesAdmin = () => {
                 <Input type="date" value={form.nascimento} onChange={(e) => setForm((prev) => ({ ...prev, nascimento: e.target.value }))} />
               </div>
               <div>
-                <Label>Genero</Label>
+                <Label>Gênero</Label>
                 <Input value={form.genero} onChange={(e) => setForm((prev) => ({ ...prev, genero: e.target.value }))} />
               </div>
             </div>

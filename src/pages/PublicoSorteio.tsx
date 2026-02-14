@@ -115,7 +115,7 @@ const PublicoSorteio = () => {
                       </div>
                     </div>
                   ) : (
-                    <p className="mt-2 text-sm text-muted-foreground">Aguardando confirmacao</p>
+                    <p className="mt-2 text-sm text-muted-foreground">Aguardando confirmação</p>
                   )}
                 </CardContent>
               </Card>
