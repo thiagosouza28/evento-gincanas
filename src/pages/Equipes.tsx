@@ -170,6 +170,16 @@ const Equipes = () => {
       return;
     }
 
+    const numero = Number(createForm.numero);
+    if (!Number.isInteger(numero) || numero <= 0) {
+      toast.error('O numero da equipe e obrigatorio');
+      return;
+    }
+    if (isNumeroDuplicado(numero)) {
+      toast.error('Ja existe uma equipe com este numero');
+      return;
+    }
+
     const newEquipe: Equipe = {
       id: createId(),
       nome: createForm.nome.trim(),
