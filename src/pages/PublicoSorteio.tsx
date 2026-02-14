@@ -3,6 +3,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { useGincanas, useEquipesComParticipantes, useInscritos } from '@/hooks/useDatabase';
 import { Loader2, CheckCircle2, Users, Wifi, WifiOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { findInscritoByNumeroOuNome } from '@/lib/inscritoLookup';
 import type { Inscrito, Equipe } from '@/types';
 
 // Canal de broadcast para sincronização em tempo real
@@ -60,9 +61,8 @@ const PublicoSorteio = () => {
   const numeroDigitado = sorteioData.numeroDigitado?.trim() || '';
   const inscritoPreview = useMemo(() => {
     if (!numeroDigitado) return null;
-    const numero = Number(numeroDigitado);
-    if (!Number.isFinite(numero)) return null;
-    return inscritos.get(numero) || null;
+    const resultado = findInscritoByNumeroOuNome(inscritos, numeroDigitado);
+    return resultado.inscrito || null;
   }, [inscritos, numeroDigitado]);
 
   return (

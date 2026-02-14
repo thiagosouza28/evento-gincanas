@@ -8,6 +8,19 @@ function normalizeText(value: string) {
     .trim();
 }
 
+const STOPWORDS = new Set(['de', 'da', 'do', 'das', 'dos', 'e']);
+
+function tokenizeName(value: string): string[] {
+  return normalizeText(value)
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function tokenizeQuery(value: string): string[] {
+  return tokenizeName(value).filter((token) => !STOPWORDS.has(token));
+}
+
 type InscritoLookupResult = {
   inscrito?: Inscrito;
   error?: string;
@@ -42,12 +55,28 @@ export function findInscritoByNumeroOuNome(
     return { error: 'Mais de um inscrito encontrado com este nome. Digite o n\u00famero.' };
   }
 
-  const partialMatches = inscritosList.filter((i) => normalizeText(i.nome).includes(normalizedQuery));
+  const queryTokens = tokenizeQuery(query);
+  if (queryTokens.length === 0) {
+    return { error: 'Digite o n\u00famero ou nome do inscrito.' };
+  }
+
+  const partialMatches = inscritosList.filter((i) => {
+    const normalizedName = normalizeText(i.nome);
+    if (normalizedName.includes(normalizedQuery)) {
+      return true;
+    }
+
+    const nameTokens = tokenizeName(i.nome);
+    return queryTokens.every((queryToken) =>
+      nameTokens.some((nameToken) => nameToken.startsWith(queryToken)),
+    );
+  });
+
   if (partialMatches.length === 1) {
     return { inscrito: partialMatches[0] };
   }
   if (partialMatches.length > 1) {
-    return { error: 'Mais de um inscrito encontrado com este nome. Digite o n\u00famero.' };
+    return { error: 'Mais de um inscrito encontrado. Digite mais nome/sobrenome ou o n\u00famero.' };
   }
 
   return { error: 'Inscrito n\u00e3o encontrado.' };
