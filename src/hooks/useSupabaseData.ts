@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { calcularIdade } from '@/types';
+import { isPagamentoBloqueadoParaSorteioEquipe } from '@/lib/pagamentoStatus';
 import type { Inscrito, Equipe, Gincana, Pontuacao, Sorteio, EquipeComParticipantes } from '@/types';
 
 // ============== INSCRITOS ==============
@@ -444,10 +445,53 @@ export function useSupabaseSorteios() {
     };
   };
 
-  const realizarSorteio = async (numeroInscrito: number, gincanaId: string): Promise<Equipe | null> => {
+  const ensureGincanaIdForSorteio = async (preferredGincanaId?: string): Promise<string | null> => {
+    if (!user) return null;
+    if (preferredGincanaId) return preferredGincanaId;
+
+    const { data: existingGincana, error: existingError } = await supabase
+      .from('gincanas')
+      .select('id')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (existingError) throw existingError;
+    if (existingGincana?.id) return existingGincana.id;
+
+    const { data: createdGincana, error: createError } = await supabase
+      .from('gincanas')
+      .insert({
+        user_id: user.id,
+        nome: 'Gincana automatica (Sorteio de equipes)',
+        categoria: 'adulto',
+        ativa: false,
+      })
+      .select('id')
+      .single();
+
+    if (createError) throw createError;
+    return createdGincana.id;
+  };
+
+  const realizarSorteio = async (numeroInscrito: number, gincanaId?: string): Promise<Equipe | null> => {
     if (!user) return null;
 
     try {
+      const { data: inscritoData, error: inscritoError } = await supabase
+        .from('inscritos')
+        .select('status_pagamento')
+        .eq('user_id', user.id)
+        .eq('numero', numeroInscrito)
+        .maybeSingle();
+
+      if (inscritoError) throw inscritoError;
+      if (!inscritoData) return null;
+      if (isPagamentoBloqueadoParaSorteioEquipe(inscritoData.status_pagamento)) {
+        return null;
+      }
+
       // Verify not already drawn
       const jaSorteado = await verificarSorteado(numeroInscrito);
       if (jaSorteado) return null;
@@ -499,6 +543,8 @@ export function useSupabaseSorteios() {
 
       // Random selection
       const selected = equipesDisponiveis[Math.floor(Math.random() * equipesDisponiveis.length)].equipe;
+      const gincanaIdToUse = await ensureGincanaIdForSorteio(gincanaId);
+      if (!gincanaIdToUse) return null;
 
       // Save draw
       const { error } = await supabase
@@ -507,7 +553,7 @@ export function useSupabaseSorteios() {
           user_id: user.id,
           numero_inscrito: numeroInscrito,
           equipe_id: selected.id,
-          gincana_id: gincanaId,
+          gincana_id: gincanaIdToUse,
         });
 
       if (error) throw error;

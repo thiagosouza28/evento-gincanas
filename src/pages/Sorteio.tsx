@@ -3,12 +3,12 @@ import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { useInscritos, useSorteios, useGincanas, useEquipesComParticipantes } from '@/hooks/useDatabase';
-import { Shuffle, User, Church, MapPin, Calendar, AlertCircle, CheckCircle2, Loader2, Maximize2, ExternalLink, Search, Plus } from 'lucide-react';
+import { useInscritos, useSorteios, useEquipesComParticipantes } from '@/hooks/useDatabase';
+import { Shuffle, User, Church, MapPin, Calendar, AlertCircle, CheckCircle2, Loader2, Maximize2, ExternalLink, Search } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { SorteioResultPopup } from '@/components/sorteio/SorteioResultPopup';
+import { getMensagemBloqueioSorteioEquipe } from '@/lib/pagamentoStatus';
 import type { Inscrito, Equipe } from '@/types';
-import { Link } from 'react-router-dom';
 
 // Canal de broadcast para sincronização em tempo real
 const SORTEIO_CHANNEL = 'sorteio-broadcast-channel';
@@ -27,9 +27,10 @@ const Sorteio = () => {
 
   const { inscritos, loading: inscritosLoading, getInscrito } = useInscritos();
   const { verificarSorteado, realizarSorteio } = useSorteios();
-  const { gincanaAtiva, gincanas, setAtiva, loading: gincanasLoading } = useGincanas();
-  const { equipes, reload: reloadEquipes } = useEquipesComParticipantes(gincanaAtiva?.id);
-  const hasGincana = Boolean(gincanaAtiva || gincanas.length > 0);
+  const { equipes, reload: reloadEquipes } = useEquipesComParticipantes();
+  const mensagemBloqueioPagamento = inscritoAtual
+    ? getMensagemBloqueioSorteioEquipe(inscritoAtual.statusPagamento)
+    : null;
 
   // Inicializa o canal de broadcast
   useEffect(() => {
@@ -79,6 +80,11 @@ const Sorteio = () => {
     }
 
     setInscritoAtual(inscrito);
+    const mensagemBloqueio = getMensagemBloqueioSorteioEquipe(inscrito.statusPagamento);
+    if (mensagemBloqueio) {
+      setError(mensagemBloqueio);
+      return;
+    }
 
     // Verificar se já foi sorteado
     const sorteioExistente = await verificarSorteado(num);
@@ -105,15 +111,10 @@ const Sorteio = () => {
 
   const handleSortear = async () => {
     if (!inscritoAtual || jaSorteado || equipes.length === 0) return;
-
-    let gincanaId = gincanaAtiva?.id;
-    if (!gincanaId) {
-      gincanaId = gincanas[0]?.id;
-      if (!gincanaId) {
-        setError('Cadastre uma gincana antes de sortear equipes.');
-        return;
-      }
-      void setAtiva(gincanaId);
+    const mensagemBloqueio = getMensagemBloqueioSorteioEquipe(inscritoAtual.statusPagamento);
+    if (mensagemBloqueio) {
+      setError(mensagemBloqueio);
+      return;
     }
 
     setSorteando(true);
@@ -138,7 +139,7 @@ const Sorteio = () => {
     }, intervalo);
 
     // Realizar o sorteio real
-    const equipeSorteada = await realizarSorteio(inscritoAtual.numero, gincanaId);
+    const equipeSorteada = await realizarSorteio(inscritoAtual.numero);
 
     // Esperar a animação terminar
     await new Promise(resolve => setTimeout(resolve, tempoTotal + 200));
@@ -344,12 +345,19 @@ const Sorteio = () => {
                     </div>
                   )}
 
+                  {mensagemBloqueioPagamento && (
+                    <div className="mt-6 flex items-center justify-center gap-2 rounded-lg bg-destructive/10 p-4 text-destructive">
+                      <AlertCircle className="h-5 w-5" />
+                      <span>{mensagemBloqueioPagamento}</span>
+                    </div>
+                  )}
+
                   {/* Sort Button */}
-                  {!jaSorteado && equipes.length > 0 && hasGincana && (
+                  {!jaSorteado && !mensagemBloqueioPagamento && equipes.length > 0 && (
                     <div className="mt-6 text-center">
                       <Button
                         onClick={handleSortear}
-                        disabled={sorteando || gincanasLoading}
+                        disabled={sorteando}
                         size="lg"
                         className="h-16 px-12 text-xl glow-primary"
                       >
@@ -361,24 +369,10 @@ const Sorteio = () => {
                         ) : (
                           <>
                             <Shuffle className="mr-2 h-6 w-6" />
-                            {gincanasLoading ? 'Carregando gincanas...' : 'Sortear Equipe'}
+                            Sortear Equipe
                           </>
                         )}
                       </Button>
-                    </div>
-                  )}
-                  {!jaSorteado && equipes.length > 0 && !gincanasLoading && !hasGincana && (
-                    <div className="mt-6 text-center text-warning">
-                      <AlertCircle className="mx-auto h-6 w-6 mb-2" />
-                      <p>Cadastre uma gincana antes de realizar o sorteio</p>
-                      <div className="mt-3 flex justify-center">
-                        <Button asChild variant="outline" size="sm" className="gap-2">
-                          <Link to="/gincanas?new=1">
-                            <Plus className="h-4 w-4" />
-                            Criar Gincana
-                          </Link>
-                        </Button>
-                      </div>
                     </div>
                   )}
                   {!jaSorteado && equipes.length === 0 && (

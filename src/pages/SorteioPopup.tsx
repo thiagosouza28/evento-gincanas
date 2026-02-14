@@ -2,10 +2,11 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { useInscritos, useSorteios, useGincanas, useEquipesComParticipantes } from '@/hooks/useDatabase';
-import { Shuffle, User, Church, MapPin, Calendar, AlertCircle, CheckCircle2, Loader2, Home, ExternalLink, Monitor, Plus } from 'lucide-react';
+import { useInscritos, useSorteios, useEquipesComParticipantes } from '@/hooks/useDatabase';
+import { Shuffle, User, Church, MapPin, Calendar, AlertCircle, CheckCircle2, Loader2, Home, ExternalLink, Monitor } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { getMensagemBloqueioSorteioEquipe } from '@/lib/pagamentoStatus';
 import { Link } from 'react-router-dom';
 import type { Inscrito, Equipe } from '@/types';
 
@@ -26,9 +27,10 @@ const SorteioPopup = () => {
 
   const { inscritos, loading: inscritosLoading, getInscrito } = useInscritos();
   const { verificarSorteado, realizarSorteio } = useSorteios();
-  const { gincanaAtiva, gincanas, setAtiva, loading: gincanasLoading } = useGincanas();
-  const { equipes, reload: reloadEquipes } = useEquipesComParticipantes(gincanaAtiva?.id);
-  const hasGincana = Boolean(gincanaAtiva || gincanas.length > 0);
+  const { equipes, reload: reloadEquipes } = useEquipesComParticipantes();
+  const mensagemBloqueioPagamento = inscritoAtual
+    ? getMensagemBloqueioSorteioEquipe(inscritoAtual.statusPagamento)
+    : null;
 
   // Inicializa o canal de broadcast
   useEffect(() => {
@@ -95,6 +97,11 @@ const SorteioPopup = () => {
     }
 
     setInscritoAtual(inscrito);
+    const mensagemBloqueio = getMensagemBloqueioSorteioEquipe(inscrito.statusPagamento);
+    if (mensagemBloqueio) {
+      setError(mensagemBloqueio);
+      return;
+    }
 
     const sorteioExistente = await verificarSorteado(num);
     if (sorteioExistente) {
@@ -115,15 +122,10 @@ const SorteioPopup = () => {
 
   const handleSortear = async () => {
     if (!inscritoAtual || jaSorteado) return;
-
-    let gincanaId = gincanaAtiva?.id;
-    if (!gincanaId) {
-      gincanaId = gincanas[0]?.id;
-      if (!gincanaId) {
-        setError('Cadastre uma gincana antes de sortear equipes.');
-        return;
-      }
-      void setAtiva(gincanaId);
+    const mensagemBloqueio = getMensagemBloqueioSorteioEquipe(inscritoAtual.statusPagamento);
+    if (mensagemBloqueio) {
+      setError(mensagemBloqueio);
+      return;
     }
 
     setSorteando(true);
@@ -145,7 +147,7 @@ const SorteioPopup = () => {
       }
     }, intervalo);
 
-    const equipeSorteada = await realizarSorteio(inscritoAtual.numero, gincanaId);
+    const equipeSorteada = await realizarSorteio(inscritoAtual.numero);
     
     await new Promise(resolve => setTimeout(resolve, tempoTotal + 200));
     clearInterval(animacao);
@@ -221,7 +223,7 @@ const SorteioPopup = () => {
         <div className="text-center pt-8">
           <h1 className="text-display-lg font-bold text-foreground">Sorteio de Equipes</h1>
           <p className="text-xl text-muted-foreground mt-2">
-            {gincanaAtiva ? gincanaAtiva.nome : 'Nenhuma gincana ativa'}
+            Distribuicao de participantes entre equipes
           </p>
         </div>
 
@@ -311,11 +313,18 @@ const SorteioPopup = () => {
                     </div>
                   )}
 
-                  {!jaSorteado && hasGincana && (
+                  {mensagemBloqueioPagamento && (
+                    <div className="mt-6 flex items-center justify-center gap-2 rounded-lg bg-destructive/10 p-4 text-destructive">
+                      <AlertCircle className="h-5 w-5" />
+                      <span className="text-lg">{mensagemBloqueioPagamento}</span>
+                    </div>
+                  )}
+
+                  {!jaSorteado && !mensagemBloqueioPagamento && (
                     <div className="mt-8 text-center">
                       <Button
                         onClick={handleSortear}
-                        disabled={sorteando || gincanasLoading}
+                        disabled={sorteando}
                         size="lg"
                         className="h-20 px-16 text-2xl glow-primary"
                       >
@@ -327,23 +336,9 @@ const SorteioPopup = () => {
                         ) : (
                           <>
                             <Shuffle className="mr-3 h-8 w-8" />
-                            {gincanasLoading ? 'Carregando gincanas...' : 'Sortear Equipe'}
+                            Sortear Equipe
                           </>
                         )}
-                      </Button>
-                    </div>
-                  )}
-                  {!jaSorteado && !gincanasLoading && !hasGincana && (
-                    <div className="mt-6 flex flex-col items-center justify-center gap-3 rounded-lg bg-warning/20 p-4 text-warning">
-                      <div className="flex items-center gap-2">
-                        <AlertCircle className="h-5 w-5" />
-                        <span className="text-lg">Cadastre uma gincana antes de realizar o sorteio</span>
-                      </div>
-                      <Button asChild variant="outline" size="sm" className="gap-2">
-                        <Link to="/gincanas?new=1">
-                          <Plus className="h-4 w-4" />
-                          Criar Gincana
-                        </Link>
                       </Button>
                     </div>
                   )}
