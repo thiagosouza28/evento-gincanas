@@ -7,6 +7,7 @@ import { Shuffle, User, Church, MapPin, Calendar, AlertCircle, CheckCircle2, Loa
 import { motion, AnimatePresence } from 'framer-motion';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { getMensagemBloqueioSorteioEquipe } from '@/lib/pagamentoStatus';
+import { findInscritoByNumeroOuNome } from '@/lib/inscritoLookup';
 import { Link } from 'react-router-dom';
 import type { Inscrito, Equipe } from '@/types';
 
@@ -25,7 +26,7 @@ const SorteioPopup = () => {
   const publicoWindow = useRef<Window | null>(null);
   const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
 
-  const { inscritos, loading: inscritosLoading, getInscrito } = useInscritos();
+  const { inscritos, loading: inscritosLoading } = useInscritos();
   const { verificarSorteado, realizarSorteio } = useSorteios();
   const { equipes, reload: reloadEquipes } = useEquipesComParticipantes();
   const mensagemBloqueioPagamento = inscritoAtual
@@ -83,27 +84,22 @@ const SorteioPopup = () => {
     setShowResult(false);
     broadcastState(null, null, false, false, numero);
 
-    const num = parseInt(numero);
-    if (isNaN(num)) {
-      setError('Digite um número válido');
+    const resultadoBusca = findInscritoByNumeroOuNome(inscritos, numero);
+    if (!resultadoBusca.inscrito) {
+      setError(resultadoBusca.error || 'Inscrito não encontrado');
       return;
     }
 
-    const inscrito = getInscrito(num);
-    
-    if (!inscrito) {
-      setError('Inscrito não encontrado');
-      return;
-    }
-
+    const inscrito = resultadoBusca.inscrito;
     setInscritoAtual(inscrito);
+
     const mensagemBloqueio = getMensagemBloqueioSorteioEquipe(inscrito.statusPagamento);
     if (mensagemBloqueio) {
       setError(mensagemBloqueio);
       return;
     }
 
-    const sorteioExistente = await verificarSorteado(num);
+    const sorteioExistente = await verificarSorteado(inscrito.numero);
     if (sorteioExistente) {
       setJaSorteado(true);
       const equipeSorteada = equipes.find(e => e.id === sorteioExistente.equipeId);
@@ -112,7 +108,7 @@ const SorteioPopup = () => {
         broadcastState(inscrito, equipeSorteada, false, true);
       }
     }
-  }, [numero, getInscrito, verificarSorteado, equipes, broadcastState]);
+  }, [numero, inscritos, verificarSorteado, equipes, broadcastState]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
@@ -176,9 +172,8 @@ const SorteioPopup = () => {
   };
 
   const handleNumeroChange = (value: string) => {
-    const sanitized = value.replace(/\D/g, '');
-    setNumero(sanitized);
-    broadcastState(null, null, false, false, sanitized);
+    setNumero(value);
+    broadcastState(null, null, false, false, value);
   };
 
   if (inscritosLoading) {
@@ -232,8 +227,8 @@ const SorteioPopup = () => {
           <CardContent className="p-6">
             <div className="flex gap-4">
               <Input
-                type="number"
-                placeholder="Número do inscrito"
+                type="text"
+                placeholder="Número ou nome do inscrito"
                 value={numero}
                 onChange={(e) => handleNumeroChange(e.target.value)}
                 onKeyDown={handleKeyDown}

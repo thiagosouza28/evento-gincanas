@@ -8,6 +8,7 @@ import { Shuffle, User, Church, MapPin, Calendar, AlertCircle, CheckCircle2, Loa
 import { motion, AnimatePresence } from 'framer-motion';
 import { SorteioResultPopup } from '@/components/sorteio/SorteioResultPopup';
 import { getMensagemBloqueioSorteioEquipe } from '@/lib/pagamentoStatus';
+import { findInscritoByNumeroOuNome } from '@/lib/inscritoLookup';
 import type { Inscrito, Equipe } from '@/types';
 
 // Canal de broadcast para sincronização em tempo real
@@ -25,7 +26,7 @@ const Sorteio = () => {
   const [sorteadosSet, setSorteadosSet] = useState<Set<number>>(new Set());
   const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
 
-  const { inscritos, loading: inscritosLoading, getInscrito } = useInscritos();
+  const { inscritos, loading: inscritosLoading } = useInscritos();
   const { verificarSorteado, realizarSorteio } = useSorteios();
   const { equipes, reload: reloadEquipes } = useEquipesComParticipantes();
   const mensagemBloqueioPagamento = inscritoAtual
@@ -65,21 +66,15 @@ const Sorteio = () => {
     setEquipeDestino(null);
     setShowResult(false);
 
-    const num = parseInt(numero);
-    if (isNaN(num)) {
-      setError('Digite um número válido');
+    const resultadoBusca = findInscritoByNumeroOuNome(inscritos, numero);
+    if (!resultadoBusca.inscrito) {
+      setError(resultadoBusca.error || 'Inscrito não encontrado');
       return;
     }
 
-    // Buscar na memória (Map)
-    const inscrito = getInscrito(num);
-
-    if (!inscrito) {
-      setError('Inscrito não encontrado');
-      return;
-    }
-
+    const inscrito = resultadoBusca.inscrito;
     setInscritoAtual(inscrito);
+
     const mensagemBloqueio = getMensagemBloqueioSorteioEquipe(inscrito.statusPagamento);
     if (mensagemBloqueio) {
       setError(mensagemBloqueio);
@@ -87,7 +82,7 @@ const Sorteio = () => {
     }
 
     // Verificar se já foi sorteado
-    const sorteioExistente = await verificarSorteado(num);
+    const sorteioExistente = await verificarSorteado(inscrito.numero);
     if (sorteioExistente) {
       setJaSorteado(true);
       const equipeSorteada = equipes.find(e => e.id === sorteioExistente.equipeId);
@@ -95,7 +90,7 @@ const Sorteio = () => {
         setEquipeDestino(equipeSorteada);
       }
     }
-  }, [numero, getInscrito, verificarSorteado, equipes]);
+  }, [numero, inscritos, verificarSorteado, equipes]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
@@ -174,9 +169,8 @@ const Sorteio = () => {
   };
 
   const handleNumeroChange = (value: string) => {
-    const sanitized = value.replace(/\D/g, '');
-    setNumero(sanitized);
-    broadcastState(null, null, false, false, sanitized);
+    setNumero(value);
+    broadcastState(null, null, false, false, value);
   };
 
   const handleClosePopup = () => {
@@ -228,19 +222,17 @@ const Sorteio = () => {
         {/* Search Card */}
         <Card className="glass">
           <CardHeader>
-            <CardTitle className="text-center">Digite o Número do Inscrito</CardTitle>
+            <CardTitle className="text-center">Digite o Número ou Nome do Inscrito</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex gap-4">
               <Input
                 type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                placeholder="Digite o número da sua inscrição/pulseira"
+                placeholder="Digite o número ou nome do inscrito"
                 value={numero}
                 onChange={(e) => handleNumeroChange(e.target.value)}
                 onKeyDown={handleKeyDown}
-                className="text-center text-6xl leading-none h-16 tracking-widest placeholder:transition-opacity focus:placeholder-transparent"
+                className="text-center text-4xl leading-none h-16 placeholder:transition-opacity focus:placeholder-transparent"
                 autoFocus
               />
               <Button onClick={buscarInscrito} size="lg" className="h-16 px-8 gap-2">
@@ -249,7 +241,7 @@ const Sorteio = () => {
               </Button>
             </div>
             <p className="mt-3 text-center text-xs text-muted-foreground">
-              Digite apenas números. Ex.: 1, 25, 304
+              Busque por número ou nome. Ex.: 1 ou Maria Silva
             </p>
           </CardContent>
         </Card>
