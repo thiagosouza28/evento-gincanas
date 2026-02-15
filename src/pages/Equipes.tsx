@@ -19,12 +19,20 @@ import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
 import { createId } from '@/lib/id';
 
+function normalizeText(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
 const Equipes = () => {
   const { gincanaAtiva } = useGincanas();
   const { equipes, loading, reload } = useEquipesComParticipantes(gincanaAtiva?.id);
   const { saveEquipe, deleteEquipe } = useEquipes();
-  const { sorteios, removerParticipantesDaEquipe, transferirParticipantesDeEquipe } = useSorteios();
-  const { getInscrito } = useInscritos();
+  const { sorteios, removerParticipantesDaEquipe, transferirParticipantesDeEquipe, adicionarParticipantesNaEquipe } = useSorteios();
+  const { getInscrito, inscritos } = useInscritos();
   const { eventoNome } = useEventoNome();
   const [selectedEquipe, setSelectedEquipe] = useState<Equipe | null>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -36,6 +44,8 @@ const Equipes = () => {
   const [participantsDialogTeamId, setParticipantsDialogTeamId] = useState<string | null>(null);
   const [selectedParticipants, setSelectedParticipants] = useState<number[]>([]);
   const [transferTargetTeamId, setTransferTargetTeamId] = useState<string>('');
+  const [addSearchTerm, setAddSearchTerm] = useState('');
+  const [selectedParticipantsToAdd, setSelectedParticipantsToAdd] = useState<number[]>([]);
   const [participantsActionLoading, setParticipantsActionLoading] = useState(false);
   const createFileInputRef = useRef<HTMLInputElement>(null);
   const editFileInputRef = useRef<HTMLInputElement>(null);
@@ -243,26 +253,75 @@ const Equipes = () => {
     [participantesDialogList],
   );
 
+  const inscritosList = useMemo(
+    () => Array.from(inscritos.values()).sort((a, b) => a.numero - b.numero),
+    [inscritos],
+  );
+
+  const numerosComEquipe = useMemo(
+    () => new Set(sorteios.map((s) => s.numeroInscrito)),
+    [sorteios],
+  );
+
+  const participantesDisponiveis = useMemo(
+    () => inscritosList.filter((inscrito) => !numerosComEquipe.has(inscrito.numero)),
+    [inscritosList, numerosComEquipe],
+  );
+
+  const participantesDisponiveisFiltrados = useMemo(() => {
+    const term = normalizeText(addSearchTerm);
+    if (!term) return participantesDisponiveis;
+
+    return participantesDisponiveis.filter((inscrito) => {
+      const numeroMatch = String(inscrito.numero).includes(term);
+      const nomeMatch = normalizeText(inscrito.nome).includes(term);
+      return numeroMatch || nomeMatch;
+    });
+  }, [participantesDisponiveis, addSearchTerm]);
+
+  const participantesDisponiveisFiltradosNumeros = useMemo(
+    () => participantesDisponiveisFiltrados.map((p) => p.numero),
+    [participantesDisponiveisFiltrados],
+  );
+
+  const participantesDisponiveisNumeros = useMemo(
+    () => participantesDisponiveis.map((p) => p.numero),
+    [participantesDisponiveis],
+  );
+
   const allSelected =
     participantesDialogNumeros.length > 0 &&
     selectedParticipants.length === participantesDialogNumeros.length;
+
+  const allAvailableSelected =
+    participantesDisponiveisFiltradosNumeros.length > 0 &&
+    participantesDisponiveisFiltradosNumeros.every((numero) =>
+      selectedParticipantsToAdd.includes(numero),
+    );
 
   useEffect(() => {
     if (!participantsDialogTeam) {
       setSelectedParticipants([]);
       setTransferTargetTeamId('');
+      setAddSearchTerm('');
+      setSelectedParticipantsToAdd([]);
       return;
     }
 
     setSelectedParticipants((prev) =>
       prev.filter((numero) => participantesDialogNumeros.includes(numero)),
     );
-  }, [participantsDialogTeam, participantesDialogNumeros]);
+    setSelectedParticipantsToAdd((prev) =>
+      prev.filter((numero) => participantesDisponiveisNumeros.includes(numero)),
+    );
+  }, [participantsDialogTeam, participantesDialogNumeros, participantesDisponiveisNumeros]);
 
   const handleOpenParticipantsDialog = (equipeId: string) => {
     setParticipantsDialogTeamId(equipeId);
     setSelectedParticipants([]);
     setTransferTargetTeamId('');
+    setAddSearchTerm('');
+    setSelectedParticipantsToAdd([]);
   };
 
   const handleToggleParticipant = (numero: number, checked: boolean | 'indeterminate') => {
@@ -280,6 +339,57 @@ const Equipes = () => {
       return;
     }
     setSelectedParticipants([]);
+  };
+
+  const handleToggleAvailableParticipant = (numero: number, checked: boolean | 'indeterminate') => {
+    setSelectedParticipantsToAdd((prev) => {
+      const exists = prev.includes(numero);
+      if (checked && !exists) return [...prev, numero];
+      if (!checked && exists) return prev.filter((n) => n !== numero);
+      return prev;
+    });
+  };
+
+  const handleToggleAllAvailableParticipants = (checked: boolean | 'indeterminate') => {
+    if (checked) {
+      setSelectedParticipantsToAdd(participantesDisponiveisFiltradosNumeros);
+      return;
+    }
+    setSelectedParticipantsToAdd([]);
+  };
+
+  const handleAddParticipants = async (numeros: number[]) => {
+    if (!participantsDialogTeam) return;
+    const numerosValidos = Array.from(new Set(numeros));
+    if (numerosValidos.length === 0) return;
+
+    setParticipantsActionLoading(true);
+    try {
+      const { adicionados, ignorados } = await adicionarParticipantesNaEquipe(
+        participantsDialogTeam.id,
+        numerosValidos,
+        gincanaAtiva?.id,
+      );
+      await reload();
+      setSelectedParticipantsToAdd((prev) => prev.filter((numero) => !numerosValidos.includes(numero)));
+
+      if (adicionados > 0 && ignorados > 0) {
+        toast.success(`${adicionados} participante(s) adicionado(s). ${ignorados} ignorado(s).`);
+      } else if (adicionados > 0) {
+        toast.success(
+          adicionados === 1
+            ? 'Participante adicionado na equipe.'
+            : `${adicionados} participantes adicionados na equipe.`,
+        );
+      } else {
+        toast.info('Nenhum participante foi adicionado (já estavam em equipe).');
+      }
+    } catch (error) {
+      console.error('Erro ao adicionar participantes na equipe:', error);
+      toast.error('Erro ao adicionar participantes na equipe.');
+    } finally {
+      setParticipantsActionLoading(false);
+    }
   };
 
   const handleRemoveParticipants = async (numeros: number[]) => {
@@ -683,6 +793,8 @@ const Equipes = () => {
               setParticipantsDialogTeamId(null);
               setSelectedParticipants([]);
               setTransferTargetTeamId('');
+              setAddSearchTerm('');
+              setSelectedParticipantsToAdd([]);
             }
           }}
         >
@@ -708,6 +820,89 @@ const Equipes = () => {
               <p className="py-6 text-center text-muted-foreground">Selecione uma equipe para gerenciar.</p>
             ) : (
               <div className="space-y-4">
+                <div className="rounded-lg border border-border bg-secondary/20 p-3">
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium">Adicionar participantes sem sorteio</p>
+                    <span className="text-xs text-muted-foreground">
+                      {selectedParticipantsToAdd.length} selecionado(s)
+                    </span>
+                  </div>
+                  <div className="mb-3 grid gap-2 md:grid-cols-[1fr_auto]">
+                    <Input
+                      placeholder="Buscar por numero ou nome"
+                      value={addSearchTerm}
+                      onChange={(e) => setAddSearchTerm(e.target.value)}
+                      disabled={participantsActionLoading}
+                    />
+                    <Button
+                      onClick={() => handleAddParticipants(selectedParticipantsToAdd)}
+                      disabled={participantsActionLoading || selectedParticipantsToAdd.length === 0}
+                      className="gap-2"
+                    >
+                      {participantsActionLoading ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Plus className="h-4 w-4" />
+                      )}
+                      Adicionar Selecionados
+                    </Button>
+                  </div>
+                  <div className="mb-2 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        checked={allAvailableSelected}
+                        onCheckedChange={handleToggleAllAvailableParticipants}
+                        disabled={
+                          participantsActionLoading ||
+                          participantesDisponiveisFiltradosNumeros.length === 0
+                        }
+                      />
+                      <span className="text-xs text-muted-foreground">Selecionar todos filtrados</span>
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      {participantesDisponiveisFiltrados.length} disponivel(is)
+                    </span>
+                  </div>
+                  <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
+                    {participantesDisponiveisFiltrados.length === 0 ? (
+                      <p className="py-4 text-center text-sm text-muted-foreground">
+                        Nenhum participante disponivel para adicionar.
+                      </p>
+                    ) : (
+                      participantesDisponiveisFiltrados.map((inscrito) => (
+                        <div
+                          key={`add-${inscrito.numero}`}
+                          className="flex items-center gap-3 rounded-lg border border-border bg-background/40 p-2"
+                        >
+                          <Checkbox
+                            checked={selectedParticipantsToAdd.includes(inscrito.numero)}
+                            onCheckedChange={(checked) =>
+                              handleToggleAvailableParticipant(inscrito.numero, checked)
+                            }
+                            disabled={participantsActionLoading}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium">{inscrito.nome}</p>
+                            <p className="text-xs text-muted-foreground">
+                              Num. {inscrito.numero} - {inscrito.igreja}
+                            </p>
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-1"
+                            onClick={() => handleAddParticipants([inscrito.numero])}
+                            disabled={participantsActionLoading}
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                            Adicionar
+                          </Button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
                 <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-secondary/30 p-3">
                   <div className="flex items-center gap-2">
                     <Checkbox

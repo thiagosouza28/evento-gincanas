@@ -648,6 +648,63 @@ export function useSupabaseSorteios() {
     return data?.length || 0;
   };
 
+  const adicionarParticipantesNaEquipe = async (
+    equipeId: string,
+    numerosInscritos: number[],
+    gincanaId?: string,
+  ) => {
+    if (!user) return { adicionados: 0, ignorados: 0 };
+
+    const numeros = Array.from(
+      new Set(
+        (numerosInscritos || [])
+          .map((n) => Number(n))
+          .filter((n) => Number.isFinite(n)),
+      ),
+    );
+
+    if (!equipeId || numeros.length === 0) {
+      return { adicionados: 0, ignorados: 0 };
+    }
+
+    const gincanaIdToUse = await ensureGincanaIdForSorteio(gincanaId);
+    if (!gincanaIdToUse) {
+      return { adicionados: 0, ignorados: numeros.length };
+    }
+
+    const { data: existentes, error: existentesError } = await supabase
+      .from('sorteios')
+      .select('numero_inscrito')
+      .eq('user_id', user.id)
+      .in('numero_inscrito', numeros);
+
+    if (existentesError) throw existentesError;
+
+    const existentesSet = new Set((existentes || []).map((row) => row.numero_inscrito));
+    const novosNumeros = numeros.filter((numero) => !existentesSet.has(numero));
+
+    if (novosNumeros.length === 0) {
+      await loadSorteios();
+      return { adicionados: 0, ignorados: numeros.length };
+    }
+
+    const payload = novosNumeros.map((numero) => ({
+      user_id: user.id,
+      numero_inscrito: numero,
+      equipe_id: equipeId,
+      gincana_id: gincanaIdToUse,
+    }));
+
+    const { error: insertError } = await supabase
+      .from('sorteios')
+      .insert(payload);
+
+    if (insertError) throw insertError;
+
+    await loadSorteios();
+    return { adicionados: novosNumeros.length, ignorados: numeros.length - novosNumeros.length };
+  };
+
   return {
     sorteios,
     loading,
@@ -656,6 +713,7 @@ export function useSupabaseSorteios() {
     deleteSorteio,
     removerParticipantesDaEquipe,
     transferirParticipantesDeEquipe,
+    adicionarParticipantesNaEquipe,
     reload: loadSorteios,
   };
 }
