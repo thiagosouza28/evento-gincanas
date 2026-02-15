@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Loader2, Trophy } from 'lucide-react';
 import { useEquipesComParticipantes } from '@/hooks/useDatabase';
+import { getTeamColor, getTeamColorAlpha } from '@/lib/teamColor';
 
 const PublicoPodio = () => {
   const { equipes, loading } = useEquipesComParticipantes();
@@ -61,15 +62,15 @@ const PublicoPodio = () => {
             <div
               className="mb-4 rounded-lg p-6 text-center glow-silver"
               style={{
-                backgroundColor: `hsl(var(--team-${ranking[1].cor}) / 0.2)`,
-                borderColor: `hsl(var(--team-${ranking[1].cor}))`,
+                backgroundColor: getTeamColorAlpha(ranking[1], 0.2),
+                borderColor: getTeamColor(ranking[1]),
                 borderWidth: 2,
               }}
             >
               <p className="text-silver text-5xl font-bold">2º</p>
               <h3
                 className="mt-2 text-xl font-bold"
-                style={{ color: `hsl(var(--team-${ranking[1].cor}))` }}
+                style={{ color: getTeamColor(ranking[1]) }}
               >
                 {ranking[1].nome}
               </h3>
@@ -97,8 +98,8 @@ const PublicoPodio = () => {
               transition={{ duration: 2, repeat: Infinity }}
               className="mb-4 rounded-lg p-8 text-center glow-gold"
               style={{
-                backgroundColor: `hsl(var(--team-${ranking[0].cor}) / 0.2)`,
-                borderColor: `hsl(var(--team-${ranking[0].cor}))`,
+                backgroundColor: getTeamColorAlpha(ranking[0], 0.2),
+                borderColor: getTeamColor(ranking[0]),
                 borderWidth: 3,
               }}
             >
@@ -106,7 +107,7 @@ const PublicoPodio = () => {
               <p className="text-gold text-6xl font-bold text-glow">1º</p>
               <h3
                 className="mt-2 text-2xl font-bold"
-                style={{ color: `hsl(var(--team-${ranking[0].cor}))` }}
+                style={{ color: getTeamColor(ranking[0]) }}
               >
                 {ranking[0].nome}
               </h3>
@@ -132,15 +133,15 @@ const PublicoPodio = () => {
             <div
               className="mb-4 rounded-lg p-6 text-center glow-bronze"
               style={{
-                backgroundColor: `hsl(var(--team-${ranking[2].cor}) / 0.2)`,
-                borderColor: `hsl(var(--team-${ranking[2].cor}))`,
+                backgroundColor: getTeamColorAlpha(ranking[2], 0.2),
+                borderColor: getTeamColor(ranking[2]),
                 borderWidth: 2,
               }}
             >
               <p className="text-bronze text-4xl font-bold">3º</p>
               <h3
                 className="mt-2 text-lg font-bold"
-                style={{ color: `hsl(var(--team-${ranking[2].cor}))` }}
+                style={{ color: getTeamColor(ranking[2]) }}
               >
                 {ranking[2].nome}
               </h3>
@@ -167,7 +168,7 @@ const PublicoPodio = () => {
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.7 + index * 0.1 }}
               className="flex items-center gap-4 rounded-lg border border-border bg-card/50 p-4"
-              style={{ borderLeftColor: `hsl(var(--team-${equipe.cor}))`, borderLeftWidth: 4 }}
+              style={{ borderLeftColor: getTeamColor(equipe), borderLeftWidth: 4 }}
             >
               <div
                 className={`flex h-10 w-10 items-center justify-center rounded-full font-bold ${
@@ -183,7 +184,7 @@ const PublicoPodio = () => {
                 {index + 1}º
               </div>
               <div className="flex-1">
-                <h3 className="font-semibold" style={{ color: `hsl(var(--team-${equipe.cor}))` }}>
+                <h3 className="font-semibold" style={{ color: getTeamColor(equipe) }}>
                   {equipe.nome}
                 </h3>
                 <p className="text-sm text-muted-foreground">{equipe.participantes} participantes</p>

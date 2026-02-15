@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { generatePontuacaoEquipePDF, generatePontuacaoGeralPDF } from '@/lib/pdfGenerator';
 import { useEventoNome } from '@/hooks/useEventoNome';
 import * as torneioService from '@/lib/torneioService';
+import { getTeamColor } from '@/lib/teamColor';
 import type { Torneio } from '@/types/torneio';
 import type { Inscrito, EquipeComParticipantes } from '@/types';
 
@@ -299,8 +300,8 @@ const Pontuacao = () => {
     return equipes.find((e) => e.id === equipeId)?.nome || 'Equipe';
   };
 
-  const getEquipeCor = (equipeId: string) => {
-    return equipes.find((e) => e.id === equipeId)?.cor || 1;
+  const getEquipeColor = (equipeId: string) => {
+    return getTeamColor(equipes.find((e) => e.id === equipeId));
   };
 
   const getEquipeImagem = (equipeId: string) => {
@@ -435,7 +436,7 @@ const Pontuacao = () => {
               >
                 <Card
                   className="glass overflow-hidden relative transition-all hover:-translate-y-0.5 hover:shadow-lg"
-                  style={{ borderColor: `hsl(var(--team-${equipe.cor}))` }}
+                  style={{ borderColor: getTeamColor(equipe) }}
                 >
                   <Button
                     variant="ghost"
@@ -448,7 +449,7 @@ const Pontuacao = () => {
                   </Button>
                   <div
                     className="h-2"
-                    style={{ backgroundColor: `hsl(var(--team-${equipe.cor}))` }}
+                    style={{ backgroundColor: getTeamColor(equipe) }}
                   />
                   <div
                     className={`absolute right-3 top-3 rounded-full px-2 py-1 text-xs font-semibold ${
@@ -468,7 +469,7 @@ const Pontuacao = () => {
                       {equipe.imagemUrl ? (
                         <div
                           className="h-12 w-12 rounded-full overflow-hidden border-2"
-                          style={{ borderColor: `hsl(var(--team-${equipe.cor}))` }}
+                          style={{ borderColor: getTeamColor(equipe) }}
                         >
                           <img
                             src={equipe.imagemUrl}
@@ -479,13 +480,13 @@ const Pontuacao = () => {
                       ) : (
                         <div
                           className="h-12 w-12 rounded-full border-2"
-                          style={{ borderColor: `hsl(var(--team-${equipe.cor}))` }}
+                          style={{ borderColor: getTeamColor(equipe) }}
                         />
                       )}
                       <div className="min-w-0">
                         <CardTitle
                           className="text-lg truncate"
-                          style={{ color: `hsl(var(--team-${equipe.cor}))` }}
+                          style={{ color: getTeamColor(equipe) }}
                         >
                           {equipe.nome}
                         </CardTitle>
@@ -534,7 +535,7 @@ const Pontuacao = () => {
                       {getEquipeImagem(p.equipeId) ? (
                         <div
                           className="h-10 w-10 rounded-full overflow-hidden border-2"
-                          style={{ borderColor: `hsl(var(--team-${getEquipeCor(p.equipeId)}))` }}
+                          style={{ borderColor: getEquipeColor(p.equipeId) }}
                         >
                           <img
                             src={getEquipeImagem(p.equipeId)}
@@ -545,7 +546,7 @@ const Pontuacao = () => {
                       ) : (
                         <div
                           className="h-10 w-10 rounded-full border-2"
-                          style={{ borderColor: `hsl(var(--team-${getEquipeCor(p.equipeId)}))` }}
+                          style={{ borderColor: getEquipeColor(p.equipeId) }}
                         />
                       )}
                       <div>
@@ -672,7 +673,7 @@ const Pontuacao = () => {
                       <p className="text-sm text-muted-foreground">Equipe</p>
                       <p
                         className="font-semibold"
-                        style={{ color: `hsl(var(--team-${selectedEquipe.cor}))` }}
+                        style={{ color: getTeamColor(selectedEquipe) }}
                       >
                         {selectedEquipe.nome} (Num. {selectedEquipe.numero})
                       </p>

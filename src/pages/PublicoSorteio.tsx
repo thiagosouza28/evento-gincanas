@@ -89,29 +89,29 @@ const PublicoSorteio = () => {
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
-              className="w-full max-w-xl"
+              className="w-full max-w-2xl"
             >
               <Card className="overflow-hidden">
                 <div className="h-2 bg-primary" />
                 <CardContent className="p-8 text-center">
                   <p className="text-xs uppercase tracking-widest text-muted-foreground">Digitando</p>
-                  <p className="mt-3 text-display-md font-bold text-primary">{numeroDigitado}</p>
+                  <p className="mt-3 text-[6rem] leading-none font-bold text-primary">{numeroDigitado}</p>
                   {inscritoPreview ? (
-                    <div className="mt-4 flex flex-col items-center gap-3">
+                    <div className="mt-6 flex flex-col items-center gap-5">
                       <img
                         src={inscritoPreview.fotoUrl || '/placeholder.svg'}
                         alt={inscritoPreview.nome}
-                        className="h-20 w-20 rounded-2xl object-cover border-2 border-primary/40"
+                        className="h-40 w-40 rounded-3xl object-cover border-4 border-primary/40"
                         onError={(e) => {
                           e.currentTarget.src = '/placeholder.svg';
                         }}
                       />
-                      <div className="space-y-2 text-center">
-                        <p className="text-2xl font-semibold text-foreground">{inscritoPreview.nome}</p>
-                        <p className="text-sm text-muted-foreground">
+                      <div className="space-y-3 text-center">
+                        <p className="text-4xl font-semibold text-foreground">{inscritoPreview.nome}</p>
+                        <p className="text-lg text-muted-foreground">
                           {inscritoPreview.igreja} {inscritoPreview.distrito ? `- ${inscritoPreview.distrito}` : ''}
                         </p>
-                        <p className="text-sm text-muted-foreground">{inscritoPreview.idade} anos</p>
+                        <p className="text-lg font-semibold text-muted-foreground">{inscritoPreview.idade} anos</p>
                       </div>
                     </div>
                   ) : (
@@ -174,7 +174,7 @@ const PublicoSorteio = () => {
             initial={{ opacity: 0, scale: 0.5 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ type: "spring", stiffness: 150 }}
-            className="w-full max-w-2xl"
+            className="w-full max-w-4xl"
           >
             <Card 
               className="overflow-hidden"
@@ -187,7 +187,7 @@ const PublicoSorteio = () => {
                 className="h-2"
                 style={{ backgroundColor: equipe.corPulseira || `hsl(var(--team-${equipe.cor}))` }}
               />
-              <CardContent className="p-6 text-center space-y-4">
+              <CardContent className="p-8 text-center space-y-6">
                 <motion.div
                   initial={{ scale: 0 }}
                   animate={{ scale: 1 }}
@@ -196,7 +196,7 @@ const PublicoSorteio = () => {
                   <img
                     src={inscrito.fotoUrl || '/placeholder.svg'}
                     alt={inscrito.nome}
-                    className="mx-auto h-28 w-28 rounded-2xl object-cover border-4 border-primary shadow-xl"
+                    className="mx-auto h-56 w-56 rounded-3xl object-cover border-4 border-primary shadow-xl"
                     onError={(e) => {
                       e.currentTarget.src = '/placeholder.svg';
                     }}
@@ -207,12 +207,24 @@ const PublicoSorteio = () => {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.4 }}
+                  className="space-y-3"
                 >
-                  <p className="text-base text-muted-foreground">Inscrito Nº {inscrito.numero}</p>
+                  <div className="inline-flex items-center justify-center rounded-2xl border-2 border-primary bg-primary/15 px-8 py-3">
+                    <p className="text-[4rem] leading-none font-black text-primary">Nº {inscrito.numero}</p>
+                  </div>
                   <h2 className="text-display-sm font-bold mt-1">{inscrito.nome}</h2>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    {inscrito.igreja} • {inscrito.distrito}
-                  </p>
+                  <div className="mt-3 flex flex-wrap items-start justify-center gap-3 text-left">
+                    <div className="min-w-[260px] rounded-xl border border-border/70 bg-muted/30 px-4 py-3">
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Igreja</p>
+                      <p className="text-lg font-semibold text-foreground">
+                        {inscrito.igreja || 'Nao informada'} {inscrito.distrito ? `- ${inscrito.distrito}` : ''}
+                      </p>
+                    </div>
+                    <div className="min-w-[180px] rounded-xl border border-border/70 bg-muted/30 px-4 py-3">
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Idade</p>
+                      <p className="text-lg font-semibold text-foreground">{inscrito.idade} anos</p>
+                    </div>
+                  </div>
                 </motion.div>
 
                 <motion.div

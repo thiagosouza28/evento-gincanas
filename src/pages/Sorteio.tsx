@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { SorteioResultPopup } from '@/components/sorteio/SorteioResultPopup';
 import { getMensagemBloqueioSorteioEquipe } from '@/lib/pagamentoStatus';
 import { findInscritoByNumeroOuNome } from '@/lib/inscritoLookup';
+import { getTeamColor } from '@/lib/teamColor';
 import type { Inscrito, Equipe } from '@/types';
 
 // Canal de broadcast para sincronização em tempo real
@@ -396,13 +397,13 @@ const Sorteio = () => {
               <Card
                 className={`overflow-hidden ${showResult ? 'animate-bounce-in' : ''}`}
                 style={{
-                  borderColor: `hsl(var(--team-${equipeDestino.cor}))`,
-                  boxShadow: showResult ? `0 0 40px hsl(var(--team-${equipeDestino.cor}) / 0.5)` : undefined
+                  borderColor: getTeamColor(equipeDestino),
+                  boxShadow: showResult ? `0 0 40px ${getTeamColor(equipeDestino)}` : undefined
                 }}
               >
                 <div
                   className="h-2"
-                  style={{ backgroundColor: `hsl(var(--team-${equipeDestino.cor}))` }}
+                  style={{ backgroundColor: getTeamColor(equipeDestino) }}
                 />
                 <CardContent className="p-8 text-center">
                   {showResult && (
@@ -414,7 +415,7 @@ const Sorteio = () => {
                       <CheckCircle2 className="mx-auto mb-4 h-16 w-16 text-success" />
                     </motion.div>
                   )}
-                  <h2 className="text-display-md font-bold" style={{ color: `hsl(var(--team-${equipeDestino.cor}))` }}>
+                  <h2 className="text-display-md font-bold" style={{ color: getTeamColor(equipeDestino) }}>
                     {equipeDestino.nome}
                   </h2>
                   <p className="mt-2 text-muted-foreground">
@@ -450,10 +451,10 @@ const Sorteio = () => {
               <Card
                 key={equipe.id}
                 className="glass"
-                style={{ borderColor: `hsl(var(--team-${equipe.cor}))` }}
+                style={{ borderColor: getTeamColor(equipe) }}
               >
                 <CardContent className="p-4 text-center">
-                  <p className="font-semibold" style={{ color: `hsl(var(--team-${equipe.cor}))` }}>
+                  <p className="font-semibold" style={{ color: getTeamColor(equipe) }}>
                     {equipe.nome}
                   </p>
                   <p className="text-2xl font-bold">{equipe.participantes}</p>

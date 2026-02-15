@@ -4,6 +4,7 @@ import { useDatabase, useEquipesComParticipantes, useGincanas, useOnlineStatus }
 import { Users, Trophy, Shuffle, Medal, Wifi, WifiOff, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { getTeamColor } from '@/lib/teamColor';
 
 const Dashboard = () => {
   const { isReady, inscritosCount } = useDatabase();
@@ -119,17 +120,17 @@ const Dashboard = () => {
               >
                 <Card 
                   className="glass overflow-hidden"
-                  style={{ borderColor: `hsl(var(--team-${equipe.cor}))` }}
+                  style={{ borderColor: getTeamColor(equipe) }}
                 >
                   <div 
                     className="h-1"
-                    style={{ backgroundColor: `hsl(var(--team-${equipe.cor}))` }}
+                    style={{ backgroundColor: getTeamColor(equipe) }}
                   />
                   <CardContent className="p-4">
                     <h3 className="font-semibold text-foreground">{equipe.nome}</h3>
                     <div className="mt-2 flex items-center justify-between text-sm text-muted-foreground">
                       <span>{equipe.participantes} participantes</span>
-                      <span className="font-bold" style={{ color: `hsl(var(--team-${equipe.cor}))` }}>
+                      <span className="font-bold" style={{ color: getTeamColor(equipe) }}>
                         {equipe.pontuacaoTotal} pts
                       </span>
                     </div>
