@@ -590,7 +590,74 @@ export function useSupabaseSorteios() {
     await loadSorteios();
   };
 
-  return { sorteios, loading, verificarSorteado, realizarSorteio, deleteSorteio, reload: loadSorteios };
+  const removerParticipantesDaEquipe = async (equipeId: string, numerosInscritos: number[]) => {
+    if (!user) return 0;
+
+    const numeros = Array.from(
+      new Set(
+        (numerosInscritos || [])
+          .map((n) => Number(n))
+          .filter((n) => Number.isFinite(n)),
+      ),
+    );
+
+    if (!equipeId || numeros.length === 0) return 0;
+
+    const { data, error } = await supabase
+      .from('sorteios')
+      .delete()
+      .eq('user_id', user.id)
+      .eq('equipe_id', equipeId)
+      .in('numero_inscrito', numeros)
+      .select('id');
+
+    if (error) throw error;
+    await loadSorteios();
+    return data?.length || 0;
+  };
+
+  const transferirParticipantesDeEquipe = async (
+    equipeOrigemId: string,
+    equipeDestinoId: string,
+    numerosInscritos: number[],
+  ) => {
+    if (!user) return 0;
+
+    const numeros = Array.from(
+      new Set(
+        (numerosInscritos || [])
+          .map((n) => Number(n))
+          .filter((n) => Number.isFinite(n)),
+      ),
+    );
+
+    if (!equipeOrigemId || !equipeDestinoId || equipeOrigemId === equipeDestinoId || numeros.length === 0) {
+      return 0;
+    }
+
+    const { data, error } = await supabase
+      .from('sorteios')
+      .update({ equipe_id: equipeDestinoId })
+      .eq('user_id', user.id)
+      .eq('equipe_id', equipeOrigemId)
+      .in('numero_inscrito', numeros)
+      .select('id');
+
+    if (error) throw error;
+    await loadSorteios();
+    return data?.length || 0;
+  };
+
+  return {
+    sorteios,
+    loading,
+    verificarSorteado,
+    realizarSorteio,
+    deleteSorteio,
+    removerParticipantesDaEquipe,
+    transferirParticipantesDeEquipe,
+    reload: loadSorteios,
+  };
 }
 
 // ============== PONTUAÇÕES ==============

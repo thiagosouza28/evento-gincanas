@@ -1,15 +1,17 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo, useEffect } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { useEquipes, useEquipesComParticipantes, useGincanas, useSorteios, useInscritos } from '@/hooks/useDatabase';
 import { useEventoNome } from '@/hooks/useEventoNome';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Users, Edit2, Loader2, User, FileDown, Trash2, Plus, Upload, X, ImageIcon } from 'lucide-react';
+import { Users, Edit2, Loader2, User, FileDown, Trash2, Plus, Upload, X, ArrowRightLeft } from 'lucide-react';
 import { motion } from 'framer-motion';
 import type { Equipe, Inscrito } from '@/types';
 import { generateTeamParticipantsPDF, generateAllTeamsPDF } from '@/lib/pdfGenerator';
@@ -21,7 +23,7 @@ const Equipes = () => {
   const { gincanaAtiva } = useGincanas();
   const { equipes, loading, reload } = useEquipesComParticipantes(gincanaAtiva?.id);
   const { saveEquipe, deleteEquipe } = useEquipes();
-  const { sorteios } = useSorteios();
+  const { sorteios, removerParticipantesDaEquipe, transferirParticipantesDeEquipe } = useSorteios();
   const { getInscrito } = useInscritos();
   const { eventoNome } = useEventoNome();
   const [selectedEquipe, setSelectedEquipe] = useState<Equipe | null>(null);
@@ -31,6 +33,10 @@ const Equipes = () => {
   const [createForm, setCreateForm] = useState({ nome: '', numero: '', lider: '', vice: '', corPulseira: '', imagemUrl: '' });
   const [uploadingCreate, setUploadingCreate] = useState(false);
   const [uploadingEdit, setUploadingEdit] = useState(false);
+  const [participantsDialogTeamId, setParticipantsDialogTeamId] = useState<string | null>(null);
+  const [selectedParticipants, setSelectedParticipants] = useState<number[]>([]);
+  const [transferTargetTeamId, setTransferTargetTeamId] = useState<string>('');
+  const [participantsActionLoading, setParticipantsActionLoading] = useState(false);
   const createFileInputRef = useRef<HTMLInputElement>(null);
   const editFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -207,10 +213,131 @@ const Equipes = () => {
   };
 
   const getParticipantesEquipe = (equipeId: string): Inscrito[] => {
-    return sorteios
-      .filter(s => s.equipeId === equipeId)
-      .map(s => getInscrito(s.numeroInscrito))
-      .filter((inscrito): inscrito is Inscrito => inscrito !== undefined);
+    const numeros = new Set<number>();
+    const participantes: Inscrito[] = [];
+
+    for (const sorteio of sorteios) {
+      if (sorteio.equipeId !== equipeId) continue;
+      if (numeros.has(sorteio.numeroInscrito)) continue;
+      const inscrito = getInscrito(sorteio.numeroInscrito);
+      if (!inscrito) continue;
+      numeros.add(sorteio.numeroInscrito);
+      participantes.push(inscrito);
+    }
+
+    return participantes.sort((a, b) => a.numero - b.numero);
+  };
+
+  const participantsDialogTeam = useMemo(
+    () => equipes.find((e) => e.id === participantsDialogTeamId) || null,
+    [equipes, participantsDialogTeamId],
+  );
+
+  const participantesDialogList = useMemo(
+    () => (participantsDialogTeam ? getParticipantesEquipe(participantsDialogTeam.id) : []),
+    [participantsDialogTeam, sorteios, getInscrito],
+  );
+
+  const participantesDialogNumeros = useMemo(
+    () => participantesDialogList.map((p) => p.numero),
+    [participantesDialogList],
+  );
+
+  const allSelected =
+    participantesDialogNumeros.length > 0 &&
+    selectedParticipants.length === participantesDialogNumeros.length;
+
+  useEffect(() => {
+    if (!participantsDialogTeam) {
+      setSelectedParticipants([]);
+      setTransferTargetTeamId('');
+      return;
+    }
+
+    setSelectedParticipants((prev) =>
+      prev.filter((numero) => participantesDialogNumeros.includes(numero)),
+    );
+  }, [participantsDialogTeam, participantesDialogNumeros]);
+
+  const handleOpenParticipantsDialog = (equipeId: string) => {
+    setParticipantsDialogTeamId(equipeId);
+    setSelectedParticipants([]);
+    setTransferTargetTeamId('');
+  };
+
+  const handleToggleParticipant = (numero: number, checked: boolean | 'indeterminate') => {
+    setSelectedParticipants((prev) => {
+      const exists = prev.includes(numero);
+      if (checked && !exists) return [...prev, numero];
+      if (!checked && exists) return prev.filter((n) => n !== numero);
+      return prev;
+    });
+  };
+
+  const handleToggleAllParticipants = (checked: boolean | 'indeterminate') => {
+    if (checked) {
+      setSelectedParticipants(participantesDialogNumeros);
+      return;
+    }
+    setSelectedParticipants([]);
+  };
+
+  const handleRemoveParticipants = async (numeros: number[]) => {
+    if (!participantsDialogTeam) return;
+    const numerosValidos = Array.from(new Set(numeros));
+    if (numerosValidos.length === 0) return;
+
+    setParticipantsActionLoading(true);
+    try {
+      const removidos = await removerParticipantesDaEquipe(participantsDialogTeam.id, numerosValidos);
+      await reload();
+      setSelectedParticipants((prev) => prev.filter((numero) => !numerosValidos.includes(numero)));
+      toast.success(
+        removidos === 1
+          ? 'Participante removido da equipe.'
+          : `${removidos} participantes removidos da equipe.`,
+      );
+    } catch (error) {
+      console.error('Erro ao remover participantes da equipe:', error);
+      toast.error('Erro ao remover participantes da equipe.');
+    } finally {
+      setParticipantsActionLoading(false);
+    }
+  };
+
+  const handleTransferParticipants = async () => {
+    if (!participantsDialogTeam) return;
+    if (!transferTargetTeamId) {
+      toast.error('Selecione a equipe de destino.');
+      return;
+    }
+    if (selectedParticipants.length === 0) {
+      toast.error('Selecione participantes para transferir.');
+      return;
+    }
+
+    const equipeDestino = equipes.find((e) => e.id === transferTargetTeamId);
+
+    setParticipantsActionLoading(true);
+    try {
+      const transferidos = await transferirParticipantesDeEquipe(
+        participantsDialogTeam.id,
+        transferTargetTeamId,
+        selectedParticipants,
+      );
+      await reload();
+      setSelectedParticipants([]);
+      toast.success(
+        transferidos === 1
+          ? `1 participante transferido para ${equipeDestino?.nome || 'a equipe de destino'}.`
+          : `${transferidos} participantes transferidos para ${equipeDestino?.nome || 'a equipe de destino'}.`,
+      );
+    } catch (error) {
+      console.error('Erro ao transferir participantes:', error);
+      toast.error('Erro ao transferir participantes.');
+    } finally {
+      setParticipantsActionLoading(false);
+    }
   };
 
   const pdfBranding = eventoNome || gincanaAtiva?.nome
@@ -525,43 +652,14 @@ const Equipes = () => {
 
                   {/* Participantes Actions */}
                   <div className="flex gap-2">
-                    <Dialog>
-                      <DialogTrigger asChild>
-                        <Button variant="outline" className="flex-1" size="sm">
-                          Ver Participantes
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent className="max-h-[80vh] overflow-y-auto">
-                        <DialogHeader>
-                          <DialogTitle style={{ color: `hsl(var(--team-${equipe.cor}))` }}>
-                            {equipe.nome} - Participantes
-                          </DialogTitle>
-                          <DialogDescription>Participantes sorteados para esta equipe.</DialogDescription>
-                        </DialogHeader>
-                        <div className="space-y-2">
-                          {getParticipantesEquipe(equipe.id).length === 0 ? (
-                            <p className="text-center text-muted-foreground py-8">
-                              Nenhum participante sorteado ainda
-                            </p>
-                          ) : (
-                            getParticipantesEquipe(equipe.id).map((inscrito) => (
-                              <div 
-                                key={inscrito.numero}
-                                className="flex items-center gap-3 rounded-lg border border-border p-3"
-                              >
-                                <User className="h-5 w-5 text-muted-foreground" />
-                                <div className="flex-1">
-                                  <p className="font-medium">{inscrito.nome}</p>
-                                  <p className="text-sm text-muted-foreground">
-                                    Nº {inscrito.numero} • {inscrito.igreja}
-                                  </p>
-                                </div>
-                              </div>
-                            ))
-                          )}
-                        </div>
-                      </DialogContent>
-                    </Dialog>
+                    <Button
+                      variant="outline"
+                      className="flex-1"
+                      size="sm"
+                      onClick={() => handleOpenParticipantsDialog(equipe.id)}
+                    >
+                      Gerenciar Participantes
+                    </Button>
                     <Button 
                       variant="outline" 
                       size="sm"
@@ -576,6 +674,202 @@ const Equipes = () => {
             </motion.div>
           ))}
         </div>
+
+        {/* Manage Participants Dialog */}
+        <Dialog
+          open={Boolean(participantsDialogTeam)}
+          onOpenChange={(open) => {
+            if (!open) {
+              setParticipantsDialogTeamId(null);
+              setSelectedParticipants([]);
+              setTransferTargetTeamId('');
+            }
+          }}
+        >
+          <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle
+                style={{
+                  color:
+                    participantsDialogTeam?.corPulseira ||
+                    (participantsDialogTeam ? `hsl(var(--team-${participantsDialogTeam.cor}))` : undefined),
+                }}
+              >
+                {participantsDialogTeam
+                  ? `${participantsDialogTeam.nome} - Participantes`
+                  : 'Participantes da equipe'}
+              </DialogTitle>
+              <DialogDescription>
+                Exclua participantes da equipe (um a um ou em lote) e transfira selecionados para outra equipe.
+              </DialogDescription>
+            </DialogHeader>
+
+            {!participantsDialogTeam ? (
+              <p className="py-6 text-center text-muted-foreground">Selecione uma equipe para gerenciar.</p>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-secondary/30 p-3">
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      checked={allSelected}
+                      onCheckedChange={handleToggleAllParticipants}
+                      disabled={participantsActionLoading || participantesDialogNumeros.length === 0}
+                    />
+                    <span className="text-sm">Selecionar todos</span>
+                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    {selectedParticipants.length} selecionado(s)
+                  </span>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+                  <div className="space-y-2">
+                    <Label>Transferir selecionados para</Label>
+                    <Select
+                      value={transferTargetTeamId}
+                      onValueChange={setTransferTargetTeamId}
+                    >
+                      <SelectTrigger
+                        disabled={participantsActionLoading || selectedParticipants.length === 0}
+                      >
+                        <SelectValue placeholder="Selecione a equipe de destino" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {equipes
+                          .filter((eq) => eq.id !== participantsDialogTeam.id)
+                          .map((eq) => (
+                            <SelectItem key={eq.id} value={eq.id}>
+                              {eq.nome}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="flex items-end gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={handleTransferParticipants}
+                      disabled={
+                        participantsActionLoading ||
+                        selectedParticipants.length === 0 ||
+                        !transferTargetTeamId
+                      }
+                      className="gap-2"
+                    >
+                      {participantsActionLoading ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <ArrowRightLeft className="h-4 w-4" />
+                      )}
+                      Transferir
+                    </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="destructive"
+                          disabled={participantsActionLoading || selectedParticipants.length === 0}
+                          className="gap-2"
+                        >
+                          {participantsActionLoading ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
+                          Excluir Selecionados
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Excluir participantes selecionados?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Essa ação vai remover {selectedParticipants.length} participante(s) da equipe{' '}
+                            <strong>{participantsDialogTeam.nome}</strong>.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => handleRemoveParticipants(selectedParticipants)}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                          >
+                            Excluir
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  {participantesDialogList.length === 0 ? (
+                    <p className="py-8 text-center text-muted-foreground">
+                      Nenhum participante sorteado nesta equipe.
+                    </p>
+                  ) : (
+                    participantesDialogList.map((inscrito) => (
+                      <div
+                        key={inscrito.numero}
+                        className="flex items-center gap-3 rounded-lg border border-border p-3"
+                      >
+                        <Checkbox
+                          checked={selectedParticipants.includes(inscrito.numero)}
+                          onCheckedChange={(checked) =>
+                            handleToggleParticipant(inscrito.numero, checked)
+                          }
+                          disabled={participantsActionLoading}
+                        />
+                        <Avatar className="h-10 w-10 border border-border">
+                          <AvatarImage src={inscrito.fotoUrl} alt={inscrito.nome} />
+                          <AvatarFallback>
+                            <User className="h-4 w-4 text-muted-foreground" />
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate font-medium">{inscrito.nome}</p>
+                          <p className="text-sm text-muted-foreground">
+                            Num. {inscrito.numero} - {inscrito.igreja}
+                          </p>
+                        </div>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-destructive hover:text-destructive"
+                              disabled={participantsActionLoading}
+                              title="Remover participante desta equipe"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Excluir participante da equipe?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                {inscrito.nome} (Num. {inscrito.numero}) será removido(a) da equipe{' '}
+                                <strong>{participantsDialogTeam.nome}</strong>.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={() => handleRemoveParticipants([inscrito.numero])}
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              >
+                                Excluir
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
 
         {/* Edit Dialog */}
         <Dialog open={isEditing} onOpenChange={setIsEditing}>
