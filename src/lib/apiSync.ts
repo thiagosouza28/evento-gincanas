@@ -2,8 +2,6 @@ import type { Inscrito } from '@/types';
 import { calcularIdade } from '@/types';
 import { supabase } from '@/integrations/supabase/client';
 
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-
 interface ApiInscrito {
   numero: string;
   nome: string;
@@ -31,67 +29,50 @@ interface ApiResponse {
 const DEFAULT_SYNC_STATUSES: Array<'PAID' | 'PENDING' | 'CANCELLED'> = ['PAID', 'PENDING', 'CANCELLED'];
 
 async function callApiProxy(body?: Record<string, unknown>) {
-  let lastError: Error | null = null;
-  try {
-    const { data, error } = await supabase.functions.invoke('api-proxy', {
-      body,
-    });
-    if (!error) {
-      return data;
-    }
-    lastError = new Error(error.message);
-  } catch (error) {
-    lastError = error instanceof Error ? error : new Error('Erro ao chamar api-proxy');
-  }
-
   const baseUrl = import.meta.env.VITE_SUPABASE_URL;
   const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+  if (!baseUrl || !anonKey) {
+    throw new Error('Variaveis VITE_SUPABASE_URL e VITE_SUPABASE_PUBLISHABLE_KEY sao obrigatorias.');
+  }
+
   const {
     data: { session },
   } = await supabase.auth.getSession();
 
-  const authCandidates = [session?.access_token, anonKey, null].filter(
-    (token, index, array): token is string | null => array.indexOf(token) === index
+  const authCandidates = [anonKey, session?.access_token].filter(
+    (token, index, array): token is string =>
+      typeof token === 'string' && token.length > 0 && array.indexOf(token) === index
   );
 
   const requestErrors: string[] = [];
-  try {
-    for (const token of authCandidates) {
-      const headers: Record<string, string> = {
+
+  for (const token of authCandidates) {
+    const response = await fetch(`${baseUrl}/functions/v1/api-proxy`, {
+      method: 'POST',
+      headers: {
         apikey: anonKey,
+        Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
-      };
-      if (token) {
-        headers.Authorization = `Bearer ${token}`;
-      }
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
 
-      const response = await fetch(`${baseUrl}/functions/v1/api-proxy`, {
-        method: 'POST',
-        headers,
-        body: body ? JSON.stringify(body) : undefined,
-      });
-
-      if (response.ok) {
-        return await response.json();
-      }
-
-      const text = await response.text().catch(() => '');
-      requestErrors.push(
-        `status=${response.status} token=${token ? 'session-or-anon' : 'none'} body=${text || '-'}`
-      );
-
-      if (response.status !== 401 && response.status !== 403) {
-        throw new Error(text || `Erro na API: ${response.status}`);
-      }
+    if (response.ok) {
+      return await response.json();
     }
 
-    throw new Error(`Falha de autenticação na API Proxy (${requestErrors.join(' | ')})`);
-  } catch (error) {
-    if (lastError) {
-      throw lastError;
+    const text = await response.text().catch(() => '');
+    requestErrors.push(
+      `status=${response.status} token=${token === anonKey ? 'anon' : 'session'} body=${text || '-'}`
+    );
+
+    if (response.status !== 401 && response.status !== 403) {
+      throw new Error(text || `Erro na API: ${response.status}`);
     }
-    throw error instanceof Error ? error : new Error('Erro ao chamar api-proxy');
   }
+
+  throw new Error(`Falha de autenticacao na API Proxy (${requestErrors.join(' | ')})`);
 }
 
 export async function syncInscritos(
