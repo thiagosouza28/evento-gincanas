@@ -30,7 +30,7 @@ const PublicoPremiacao = () => {
     setIsConnected(true);
 
     broadcastChannelRef.current.onmessage = (event: MessageEvent<PremiacaoData>) => {
-      console.log('Premiação broadcast recebido:', event.data);
+      console.log('Sorteio broadcast recebido:', event.data);
       setPremiacaoData(event.data);
     };
 
@@ -61,7 +61,7 @@ const PublicoPremiacao = () => {
       <div className="text-center mb-8">
         <h1 className="text-display-md font-bold text-foreground flex items-center justify-center gap-4">
           <Gift className="h-12 w-12 text-primary" />
-          Sorteio de Premiação
+          Sorteio
         </h1>
       </div>
 
@@ -137,7 +137,7 @@ const PublicoPremiacao = () => {
                     transition={{ delay: 0.3 }}
                     className="mb-8"
                   >
-                    <p className="text-sm text-muted-foreground uppercase tracking-wider mb-2">Prêmio / Tarefa</p>
+                    <p className="text-sm text-muted-foreground uppercase tracking-wider mb-2">Item / Tarefa</p>
                     <h3 className="text-display-xs font-bold text-primary">{descricaoPremio}</h3>
                   </motion.div>
                 )}
@@ -236,7 +236,7 @@ const PublicoPremiacao = () => {
                       transition={{ delay: 0.3 }}
                       className="mb-8"
                     >
-                      <p className="text-sm text-muted-foreground uppercase tracking-wider mb-2">Prêmio / Tarefa</p>
+                      <p className="text-sm text-muted-foreground uppercase tracking-wider mb-2">Item / Tarefa</p>
                       <h3 className="text-display-xs font-bold" style={{ color: corEquipe }}>{descricaoPremio}</h3>
                     </motion.div>
                   )}

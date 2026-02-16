@@ -1,18 +1,61 @@
+import { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { MainLayout } from '@/components/layout/MainLayout';
-import { useDatabase, useEquipesComParticipantes, useGincanas, useOnlineStatus } from '@/hooks/useDatabase';
-import { Users, Trophy, Shuffle, Medal, Wifi, WifiOff, Loader2 } from 'lucide-react';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { useDatabase, useEquipesComParticipantes, useGincanas, useInscritos, useOnlineStatus } from '@/hooks/useDatabase';
+import { Users, Trophy, Shuffle, Medal, Wifi, WifiOff, Loader2, Ban } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { getTeamColor } from '@/lib/teamColor';
+import { supabase } from '@/integrations/supabase/client';
+import { buildLoteResumo, formatLoteOrigem, type LoteLookup } from '@/lib/loteResumo';
 
 const Dashboard = () => {
   const { isReady, inscritosCount } = useDatabase();
   const { equipes, loading: equipesLoading } = useEquipesComParticipantes();
   const { gincanaAtiva, loading: gincanasLoading } = useGincanas();
+  const { inscritos, loading: inscritosLoading } = useInscritos();
   const isOnline = useOnlineStatus();
+  const [lotesById, setLotesById] = useState<Map<string, LoteLookup>>(new Map());
 
-  if (!isReady || equipesLoading || gincanasLoading) {
+  useEffect(() => {
+    let active = true;
+
+    const loadLotes = async () => {
+      const { data, error } = await supabase
+        .from('lotes')
+        .select('id, nome, eventos(nome)');
+
+      if (error || !active) return;
+
+      const next = new Map<string, LoteLookup>();
+      (data || []).forEach((row: { id: string; nome: string; eventos?: { nome?: string | null } | Array<{ nome?: string | null }> | null }) => {
+        const eventoNome = Array.isArray(row.eventos)
+          ? row.eventos[0]?.nome || null
+          : row.eventos?.nome || null;
+        next.set(row.id, {
+          id: row.id,
+          nome: row.nome,
+          eventoNome,
+        });
+      });
+      setLotesById(next);
+    };
+
+    loadLotes();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const totalParticipantes = equipes.reduce((acc, eq) => acc + eq.participantes, 0);
+  const resumoLotes = useMemo(
+    () => buildLoteResumo(Array.from(inscritos.values()), lotesById),
+    [inscritos, lotesById],
+  );
+  const totalCanceladasPorLote = resumoLotes.reduce((sum, item) => sum + item.totalCanceladas, 0);
+
+  if (!isReady || equipesLoading || gincanasLoading || inscritosLoading) {
     return (
       <MainLayout>
         <div className="flex h-[80vh] items-center justify-center">
@@ -25,12 +68,11 @@ const Dashboard = () => {
     );
   }
 
-  const totalParticipantes = equipes.reduce((acc, eq) => acc + eq.participantes, 0);
-
   const stats = [
     { label: 'Inscritos Sincronizados', value: inscritosCount, icon: Users, color: 'text-info' },
     { label: 'Participantes Sorteados', value: totalParticipantes, icon: Shuffle, color: 'text-primary' },
     { label: 'Equipes', value: equipes.length, icon: Trophy, color: 'text-warning' },
+    { label: 'Canceladas por Lote', value: totalCanceladasPorLote, icon: Ban, color: 'text-destructive' },
     { label: 'Gincana Ativa', value: gincanaAtiva?.nome || 'Nenhuma', icon: Medal, color: 'text-accent', isText: true },
   ];
 
@@ -52,7 +94,7 @@ const Dashboard = () => {
         </div>
 
         {/* Stats Grid */}
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-5">
           {stats.map((stat, index) => (
             <motion.div
               key={stat.label}
@@ -75,6 +117,39 @@ const Dashboard = () => {
               </Card>
             </motion.div>
           ))}
+        </div>
+
+        {/* Inscricoes por lote */}
+        <div>
+          <h2 className="mb-4 text-xl font-semibold text-foreground">Inscricoes por Lote</h2>
+          <Card className="glass">
+            <CardContent className="pt-6">
+              {resumoLotes.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Nenhuma inscricao encontrada para agrupar por lote.</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Lote</TableHead>
+                      <TableHead>Origem</TableHead>
+                      <TableHead className="text-right">Inscritos</TableHead>
+                      <TableHead className="text-right">Canceladas</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {resumoLotes.map((item) => (
+                      <TableRow key={item.key}>
+                        <TableCell className="font-medium">{item.nome}</TableCell>
+                        <TableCell>{formatLoteOrigem(item.origem)}</TableCell>
+                        <TableCell className="text-right">{item.totalInscritos}</TableCell>
+                        <TableCell className="text-right">{item.totalCanceladas}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
         </div>
 
         {/* Quick Actions */}

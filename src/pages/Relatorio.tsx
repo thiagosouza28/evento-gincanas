@@ -1,11 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
-import { BarChart3, Trophy, Medal, Users, FileDown } from 'lucide-react';
+import { BarChart3, Trophy, Medal, Users, FileDown, Ban } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import * as torneioService from '@/lib/torneioService';
 import type { Gincana, Equipe, Pontuacao } from '@/types';
@@ -15,6 +15,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { generatePontuacaoEquipePDF, generatePontuacaoGeralPDF } from '@/lib/pdfGenerator';
 import { toast } from 'sonner';
 import { useEventoNome } from '@/hooks/useEventoNome';
+import { useInscritos } from '@/hooks/useDatabase';
+import { buildLoteResumo, formatLoteOrigem, type LoteLookup } from '@/lib/loteResumo';
 
 interface PontuacaoPorGincana {
   gincanaId: string;
@@ -39,6 +41,8 @@ export default function Relatorio() {
   const [loading, setLoading] = useState(true);
   const [selectedGincana, setSelectedGincana] = useState<string>('all');
   const [selectedEquipeId, setSelectedEquipeId] = useState<string>('');
+  const { inscritos, loading: inscritosLoading } = useInscritos();
+  const [lotesById, setLotesById] = useState<Map<string, LoteLookup>>(new Map());
   
   useEffect(() => {
     if (user) {
@@ -51,6 +55,37 @@ export default function Relatorio() {
       setLoading(false);
     }
   }, [user]);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadLotes = async () => {
+      const { data, error } = await supabase
+        .from('lotes')
+        .select('id, nome, eventos(nome)');
+
+      if (error || !active) return;
+
+      const next = new Map<string, LoteLookup>();
+      (data || []).forEach((row: { id: string; nome: string; eventos?: { nome?: string | null } | Array<{ nome?: string | null }> | null }) => {
+        const eventoNome = Array.isArray(row.eventos)
+          ? row.eventos[0]?.nome || null
+          : row.eventos?.nome || null;
+        next.set(row.id, {
+          id: row.id,
+          nome: row.nome,
+          eventoNome,
+        });
+      });
+      setLotesById(next);
+    };
+
+    loadLotes();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   async function loadData() {
     try {
@@ -162,10 +197,17 @@ export default function Relatorio() {
           .reduce((sum, g) => sum + g.pontos, 0),
         pontuacoesPorGincana: r.pontuacoesPorGincana.filter(g => g.gincanaId === selectedGincana),
       })).sort((a, b) => b.pontosTotais - a.pontosTotais);
+
+  const resumoLotes = useMemo(
+    () => buildLoteResumo(Array.from(inscritos.values()), lotesById),
+    [inscritos, lotesById],
+  );
   
-  // Estatísticas gerais
+  // Estatisticas gerais
   const totalPontos = pontuacoes.reduce((sum, p) => sum + p.pontos, 0);
   const torneiosFinalizados = torneios.filter(t => t.status === 'finalizado').length;
+  const totalInscritosPorLote = resumoLotes.reduce((sum, item) => sum + item.totalInscritos, 0);
+  const totalCanceladasPorLote = resumoLotes.reduce((sum, item) => sum + item.totalCanceladas, 0);
 
   const handleExportGeral = async () => {
     const pdfBranding = eventoNome
@@ -190,7 +232,7 @@ export default function Relatorio() {
     toast.success('PDF da equipe gerado com sucesso.');
   };
   
-  if (loading) {
+  if (loading || inscritosLoading) {
     return (
       <MainLayout>
         <div className="flex h-[50vh] items-center justify-center text-muted-foreground">
@@ -227,7 +269,7 @@ export default function Relatorio() {
         </div>
         
         {/* Cards de resumo */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-4">
           <Card>
             <CardContent className="pt-6">
               <div className="flex items-center gap-4">
@@ -283,7 +325,70 @@ export default function Relatorio() {
               </div>
             </CardContent>
           </Card>
+
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-4">
+                <div className="p-3 rounded-lg bg-info/10">
+                  <Users className="h-6 w-6 text-info" />
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Inscritos por lote</p>
+                  <p className="text-2xl font-bold">{totalInscritosPorLote}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-4">
+                <div className="p-3 rounded-lg bg-destructive/10">
+                  <Ban className="h-6 w-6 text-destructive" />
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Canceladas por lote</p>
+                  <p className="text-2xl font-bold">{totalCanceladasPorLote}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Inscricoes por lote</CardTitle>
+            <CardDescription>
+              Quantidade total e canceladas por lote (inclui lotes externos).
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {resumoLotes.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Nenhuma inscricao encontrada para agrupar por lote.</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Lote</TableHead>
+                    <TableHead>Origem</TableHead>
+                    <TableHead className="text-right">Inscritos</TableHead>
+                    <TableHead className="text-right">Canceladas</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {resumoLotes.map((item) => (
+                    <TableRow key={item.key}>
+                      <TableCell className="font-medium">{item.nome}</TableCell>
+                      <TableCell>{formatLoteOrigem(item.origem)}</TableCell>
+                      <TableCell className="text-right">{item.totalInscritos}</TableCell>
+                      <TableCell className="text-right">{item.totalCanceladas}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Filtro */}
         <div className="flex items-center gap-4">
