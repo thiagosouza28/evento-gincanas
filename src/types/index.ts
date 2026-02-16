@@ -92,6 +92,7 @@ export interface Evento {
   dataFim?: string | null;
   local?: string | null;
   slug?: string | null;
+  ownerId?: string;
   status: 'ativo' | 'inativo';
   createdAt?: string;
   updatedAt?: string;
@@ -160,6 +161,8 @@ export interface ParticipanteEvento {
 export interface PagamentoEvento {
   id: string;
   inscricaoId: string;
+  userId?: string | null;
+  integrationId?: string | null;
   provider: string;
   providerPaymentId: string;
   status: 'PENDING' | 'PAID' | 'CANCELLED';
@@ -169,6 +172,20 @@ export interface PagamentoEvento {
   paidAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface PaymentIntegration {
+  id: string;
+  userId: string;
+  provider: string;
+  accessToken?: string | null;
+  publicKey?: string | null;
+  clientId?: string | null;
+  clientSecret?: string | null;
+  webhookSecret?: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 // Utilitário para calcular idade

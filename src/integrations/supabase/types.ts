@@ -225,6 +225,7 @@ export type Database = {
           id: string
           local: string | null
           nome: string
+          owner_id: string
           slug: string | null
           status: string
           updated_at: string
@@ -236,6 +237,7 @@ export type Database = {
           id?: string
           local?: string | null
           nome: string
+          owner_id: string
           slug?: string | null
           status?: string
           updated_at?: string
@@ -247,6 +249,7 @@ export type Database = {
           id?: string
           local?: string | null
           nome?: string
+          owner_id?: string
           slug?: string | null
           status?: string
           updated_at?: string
@@ -388,12 +391,55 @@ export type Database = {
           },
         ]
       }
+      payment_integrations: {
+        Row: {
+          access_token: string | null
+          client_id: string | null
+          client_secret: string | null
+          created_at: string
+          id: string
+          is_active: boolean
+          provider: string
+          public_key: string | null
+          updated_at: string
+          user_id: string
+          webhook_secret: string | null
+        }
+        Insert: {
+          access_token?: string | null
+          client_id?: string | null
+          client_secret?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          provider: string
+          public_key?: string | null
+          updated_at?: string
+          user_id: string
+          webhook_secret?: string | null
+        }
+        Update: {
+          access_token?: string | null
+          client_id?: string | null
+          client_secret?: string | null
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          provider?: string
+          public_key?: string | null
+          updated_at?: string
+          user_id?: string
+          webhook_secret?: string | null
+        }
+        Relationships: []
+      }
       pagamentos: {
         Row: {
           copiaecola: string | null
           created_at: string
           expires_at: string | null
           id: string
+          integration_id: string | null
           inscricao_id: string
           paid_at: string | null
           provider: string
@@ -401,12 +447,14 @@ export type Database = {
           qrcode: string | null
           status: string
           updated_at: string
+          user_id: string | null
         }
         Insert: {
           copiaecola?: string | null
           created_at?: string
           expires_at?: string | null
           id?: string
+          integration_id?: string | null
           inscricao_id: string
           paid_at?: string | null
           provider: string
@@ -414,12 +462,14 @@ export type Database = {
           qrcode?: string | null
           status?: string
           updated_at?: string
+          user_id?: string | null
         }
         Update: {
           copiaecola?: string | null
           created_at?: string
           expires_at?: string | null
           id?: string
+          integration_id?: string | null
           inscricao_id?: string
           paid_at?: string | null
           provider?: string
@@ -427,8 +477,16 @@ export type Database = {
           qrcode?: string | null
           status?: string
           updated_at?: string
+          user_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "pagamentos_integration_id_fkey"
+            columns: ["integration_id"]
+            isOneToOne: false
+            referencedRelation: "payment_integrations"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "pagamentos_inscricao_id_fkey"
             columns: ["inscricao_id"]

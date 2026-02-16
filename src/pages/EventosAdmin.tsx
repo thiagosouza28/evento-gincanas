@@ -11,8 +11,10 @@ import { Calendar, Plus, Pencil, Trash2, Loader2, Link as LinkIcon, Copy } from 
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import type { Evento } from '@/types';
+import { useAuth } from '@/contexts/AuthContext';
 
 const EventosAdmin = () => {
+  const { user } = useAuth();
   const [eventos, setEventos] = useState<Evento[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -28,10 +30,17 @@ const EventosAdmin = () => {
   });
 
   const loadEventos = async () => {
+    if (!user?.id) {
+      setEventos([]);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     const { data, error } = await supabase
       .from('eventos')
       .select('*')
+      .eq('owner_id', user.id)
       .order('data_inicio', { ascending: false });
     if (error) {
       toast.error('Erro ao carregar eventos');
@@ -44,6 +53,7 @@ const EventosAdmin = () => {
           dataFim: row.data_fim,
           local: row.local,
           slug: row.slug,
+          ownerId: row.owner_id,
           status: (row.status as Evento['status']) || 'ativo',
           createdAt: row.created_at,
           updatedAt: row.updated_at,
@@ -55,7 +65,7 @@ const EventosAdmin = () => {
 
   useEffect(() => {
     loadEventos();
-  }, []);
+  }, [user?.id]);
 
   const resetForm = () => {
     setForm({ nome: '', dataInicio: '', dataFim: '', local: '', slug: '', status: 'ativo' });
@@ -102,6 +112,11 @@ const EventosAdmin = () => {
       toast.error('Informe o nome do evento');
       return;
     }
+    if (!user?.id) {
+      toast.error('UsuÃ¡rio nÃ£o autenticado');
+      return;
+    }
+
     if (editing) {
       const { error } = await supabase
         .from('eventos')
@@ -113,7 +128,8 @@ const EventosAdmin = () => {
           slug: form.slug?.trim() || slugify(form.nome),
           status: form.status,
         })
-        .eq('id', editing.id);
+        .eq('id', editing.id)
+        .eq('owner_id', user.id);
       if (error) {
         toast.error('Erro ao atualizar evento');
         return;
@@ -127,6 +143,7 @@ const EventosAdmin = () => {
         local: form.local || null,
         slug: form.slug?.trim() || slugify(form.nome),
         status: form.status,
+        owner_id: user.id,
       });
       if (error) {
         toast.error('Erro ao criar evento');
@@ -141,7 +158,15 @@ const EventosAdmin = () => {
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
-    const { error } = await supabase.from('eventos').delete().eq('id', deleteTarget.id);
+    if (!user?.id) {
+      toast.error('UsuÃ¡rio nÃ£o autenticado');
+      return;
+    }
+    const { error } = await supabase
+      .from('eventos')
+      .delete()
+      .eq('id', deleteTarget.id)
+      .eq('owner_id', user.id);
     if (error) {
       toast.error('Erro ao excluir evento');
       return;

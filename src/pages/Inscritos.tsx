@@ -20,6 +20,7 @@ import { calcularIdade } from '@/types';
 import { toast } from 'sonner';
 import type { Inscrito } from '@/types';
 import { supabase } from '@/integrations/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
 
 const DEFAULT_PHOTO = '/placeholder.svg';
 
@@ -58,6 +59,7 @@ type ParticipanteLookup = {
 };
 
 const Inscritos = () => {
+  const { user } = useAuth();
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('numero-asc');
   const [ageFilter, setAgeFilter] = useState<AgeFilter>('all');
@@ -88,10 +90,18 @@ const Inscritos = () => {
   useEffect(() => {
     let active = true;
     const loadEventosInscricoes = async () => {
+      if (!user?.id) {
+        if (active) {
+          setEventosInscricoes([]);
+          setEventosInscricoesLoading(false);
+        }
+        return;
+      }
       setEventosInscricoesLoading(true);
       const { data, error } = await supabase
         .from('eventos')
         .select('id, nome')
+        .eq('owner_id', user.id)
         .order('nome');
       if (!error && active) {
         setEventosInscricoes((data || []).map((row) => ({ id: row.id, name: row.nome })));
@@ -104,7 +114,7 @@ const Inscritos = () => {
     return () => {
       active = false;
     };
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     let active = true;

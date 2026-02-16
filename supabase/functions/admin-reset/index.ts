@@ -18,6 +18,7 @@ const CLEAR_DATA_TABLES = [
   "gincanas",
   "inscritos",
   "pagamentos",
+  "payment_integrations",
   "participantes",
   "inscricoes",
   "lotes",

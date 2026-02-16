@@ -46,23 +46,46 @@ async function callApiProxy(body?: Record<string, unknown>) {
 
   const baseUrl = import.meta.env.VITE_SUPABASE_URL;
   const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-  try {
-    const response = await fetch(`${baseUrl}/functions/v1/api-proxy`, {
-      method: 'POST',
-      headers: {
-        apikey: anonKey,
-        Authorization: `Bearer ${anonKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    });
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
 
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(text || `Erro na API: ${response.status}`);
+  const authCandidates = [session?.access_token, anonKey, null].filter(
+    (token, index, array): token is string | null => array.indexOf(token) === index
+  );
+
+  const requestErrors: string[] = [];
+  try {
+    for (const token of authCandidates) {
+      const headers: Record<string, string> = {
+        apikey: anonKey,
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${baseUrl}/functions/v1/api-proxy`, {
+        method: 'POST',
+        headers,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+
+      if (response.ok) {
+        return await response.json();
+      }
+
+      const text = await response.text().catch(() => '');
+      requestErrors.push(
+        `status=${response.status} token=${token ? 'session-or-anon' : 'none'} body=${text || '-'}`
+      );
+
+      if (response.status !== 401 && response.status !== 403) {
+        throw new Error(text || `Erro na API: ${response.status}`);
+      }
     }
 
-    return await response.json();
+    throw new Error(`Falha de autenticação na API Proxy (${requestErrors.join(' | ')})`);
   } catch (error) {
     if (lastError) {
       throw lastError;

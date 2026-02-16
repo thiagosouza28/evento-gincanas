@@ -7,16 +7,28 @@ import { FileDown, FileSpreadsheet, BarChart3, Loader2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import type { Evento } from '@/types';
+import { useAuth } from '@/contexts/AuthContext';
 
 const RelatoriosAdmin = () => {
+  const { user } = useAuth();
   const [eventos, setEventos] = useState<Evento[]>([]);
   const [selectedEventId, setSelectedEventId] = useState('');
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
 
   const loadEventos = async () => {
+    if (!user?.id) {
+      setEventos([]);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
-    const { data, error } = await supabase.from('eventos').select('*').order('nome');
+    const { data, error } = await supabase
+      .from('eventos')
+      .select('*')
+      .eq('owner_id', user.id)
+      .order('nome');
     if (error) {
       toast.error('Erro ao carregar eventos');
     } else {
@@ -38,7 +50,7 @@ const RelatoriosAdmin = () => {
 
   useEffect(() => {
     loadEventos();
-  }, []);
+  }, [user?.id]);
 
   const downloadReport = async (format: 'pdf' | 'xlsx') => {
     if (!selectedEventId) {

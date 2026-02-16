@@ -12,6 +12,7 @@ import { motion } from 'framer-motion';
 import { fetchEventos, syncInscritos, testApiConnection } from '@/lib/apiSync';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
+import { PaymentIntegrationsSection } from '@/components/settings/PaymentIntegrationsSection';
 
 const Configuracoes = () => {
   const { config, saveConfig, loading: configLoading } = useApiConfig();
@@ -212,6 +213,13 @@ const Configuracoes = () => {
           <h1 className="text-display-sm text-foreground">Configurações</h1>
           <p className="text-muted-foreground">Configure a conexão com a API e sincronização</p>
         </div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <PaymentIntegrationsSection />
+        </motion.div>
 
         {/* Connection Status */}
         <motion.div

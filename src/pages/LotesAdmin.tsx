@@ -13,8 +13,10 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { formatCurrencyBR, parseCurrencyBR } from '@/lib/masks';
 import type { Lote, Evento } from '@/types';
+import { useAuth } from '@/contexts/AuthContext';
 
 const LotesAdmin = () => {
+  const { user } = useAuth();
   const [lotes, setLotes] = useState<Lote[]>([]);
   const [eventos, setEventos] = useState<Evento[]>([]);
   const [loading, setLoading] = useState(true);
@@ -31,11 +33,32 @@ const LotesAdmin = () => {
   });
 
   const loadData = async () => {
+    if (!user?.id) {
+      setEventos([]);
+      setLotes([]);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
-    const [lotesRes, eventosRes] = await Promise.all([
-      supabase.from('lotes').select('*').order('inicio', { ascending: false }),
-      supabase.from('eventos').select('*').order('nome'),
-    ]);
+    const eventosRes = await supabase
+      .from('eventos')
+      .select('*')
+      .eq('owner_id', user.id)
+      .order('nome');
+
+    const eventIds = (eventosRes.data || []).map((row) => row.id);
+    let lotesRes;
+    if (eventIds.length > 0) {
+      lotesRes = await supabase
+        .from('lotes')
+        .select('*')
+        .in('evento_id', eventIds)
+        .order('inicio', { ascending: false });
+    } else {
+      lotesRes = { data: [], error: null };
+    }
+
     if (lotesRes.error || eventosRes.error) {
       toast.error('Erro ao carregar lotes');
     } else {
@@ -70,7 +93,7 @@ const LotesAdmin = () => {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [user?.id]);
 
   const resetForm = () => {
     setForm({ eventoId: '', nome: '', valor: '', inicio: '', fim: '', status: 'ativo' });

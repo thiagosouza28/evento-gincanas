@@ -1,15 +1,29 @@
-// @ts-nocheck
+﻿// @ts-nocheck
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { z } from "https://esm.sh/zod@3.25.76";
 import { PDFDocument, StandardFonts, rgb } from "https://esm.sh/pdf-lib@1.17.1";
 import * as XLSX from "https://esm.sh/xlsx@0.18.5";
+import {
+  activateUserIntegration,
+  createUserIntegration,
+  deleteUserIntegration,
+  listUserIntegrations,
+  updateUserIntegration,
+} from "./controllers/integrations.ts";
+import { requireAuthenticatedUser } from "./middleware/auth.ts";
+import { matchIntegrationRoute } from "./routes/integrations.ts";
+import {
+  checkStatusByProvider,
+  createPaymentByProvider,
+  normalizeProviderName,
+} from "./services/paymentProviders.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+  "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version, whatsapp_webhook_secret, WHATSAPP_WEBHOOK_SECRET, x-whatsapp-webhook-secret",
+    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version, whatsapp_webhook_secret, WHATSAPP_WEBHOOK_SECRET, x-whatsapp-webhook-secret, x-webhook-secret, webhook_secret",
 };
 
 const logger = {
@@ -24,17 +38,17 @@ const logger = {
 const whatsappKeywords = [
   "quero me inscrever",
   "inscricao",
-  "inscrição",
+  "inscriÃ§Ã£o",
   "evento",
   "inscrever",
   "participar",
 ];
 const consultaKeywords = [
   "consultar inscricao",
-  "consultar inscrição",
+  "consultar inscriÃ§Ã£o",
   "consultar",
   "minha inscricao",
-  "minha inscrição",
+  "minha inscriÃ§Ã£o",
 ];
 const cancelKeywords = ["cancelar", "sair", "reset", "reiniciar", "voltar"];
 const menuKeywords = ["menu", "opcoes", "opcoes", "ajuda", "inicio"];
@@ -54,7 +68,7 @@ const pixConsultKeywords = [
   "reenviar pix",
 ];
 const pixQrKeywords = ["reenviar qr", "reenviar qr code", "qr code", "qrcode"];
-const pixPaidKeywords = ["ja paguei", "já paguei", "paguei"];
+const pixPaidKeywords = ["ja paguei", "jÃ¡ paguei", "paguei"];
 const supportKeywords = ["suporte", "falar com suporte", "ajuda", "atendimento"];
 
 const whatsappPayloadSchema = z.object({
@@ -252,7 +266,7 @@ async function sendPixButtons(to: string) {
     });
   }
 
-  // Fallback: texto com opções numeradas
+  // Fallback: texto com opÃ§Ãµes numeradas
   await sendText(
     to,
     "Opcoes:\n1. Copiar PIX\n2. Reenviar QR Code\n3. Ja paguei\nResponda com o numero.",
@@ -405,7 +419,7 @@ function parseParticipantData(message: string) {
     "data nascimento",
     "data",
   ]);
-  const genero = getByKeys(["genero", "gênero", "sexo"]);
+  const genero = getByKeys(["genero", "gÃªnero", "sexo"]);
   const distrito = getByKeys(["distrito"]);
   const igreja = getByKeys(["igreja"]);
   const telefone = getByKeys(["telefone", "celular", "whatsapp"]);
@@ -656,62 +670,152 @@ async function listDistritos(supabase: any, limit = 20) {
   return data || [];
 }
 
-async function createPixPayment({
+function mapProviderStatusToInternal(status: string | null | undefined) {
+  const normalized = String(status || "").toLowerCase().trim();
+  if (
+    [
+      "approved",
+      "paid",
+      "succeeded",
+      "authorized",
+      "captured",
+    ].includes(normalized)
+  ) {
+    return "PAID";
+  }
+
+  if (
+    [
+      "cancelled",
+      "canceled",
+      "refunded",
+      "chargeback",
+      "rejected",
+      "expired",
+      "failed",
+      "failure",
+    ].includes(normalized)
+  ) {
+    return "CANCELLED";
+  }
+
+  return "PENDING";
+}
+
+function buildProviderWebhookUrl(provider: string) {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  if (!supabaseUrl) {
+    throw new Error("SUPABASE_URL not configured");
+  }
+  return `${supabaseUrl}/functions/v1/api/payments/${provider}/webhook`;
+}
+
+function extractWebhookSecretFromRequest(req: Request) {
+  const query = new URL(req.url).searchParams;
+  return (
+    query.get("webhook_secret") ||
+    req.headers.get("x-webhook-secret") ||
+    req.headers.get("webhook_secret") ||
+    ""
+  );
+}
+
+function isWebhookSecretValid(req: Request, expectedSecret?: string | null) {
+  if (!expectedSecret) return true;
+  return extractWebhookSecretFromRequest(req) === expectedSecret;
+}
+
+async function resolvePaymentContextForEvent(supabase: any, eventId: string) {
+  const { data: event, error: eventError } = await supabase
+    .from("eventos")
+    .select("id, owner_id")
+    .eq("id", eventId)
+    .maybeSingle();
+
+  if (eventError) {
+    throw new Error(`Erro ao buscar evento para pagamento: ${eventError.message}`);
+  }
+  if (!event) {
+    throw new Error("Evento nao encontrado para pagamento.");
+  }
+
+  const ownerId = event.owner_id || null;
+
+  let activeIntegration: any = null;
+  if (ownerId) {
+    const { data, error } = await supabase
+      .from("payment_integrations")
+      .select(
+        "id, user_id, provider, access_token, public_key, client_id, client_secret, webhook_secret, is_active",
+      )
+      .eq("user_id", ownerId)
+      .eq("is_active", true)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(`Erro ao buscar integracao ativa: ${error.message}`);
+    }
+
+    activeIntegration = data || null;
+  }
+
+  const provider = normalizeProviderName(activeIntegration?.provider || "mercadopago");
+  const credentials = {
+    access_token: activeIntegration?.access_token || null,
+    public_key: activeIntegration?.public_key || null,
+    client_id: activeIntegration?.client_id || null,
+    client_secret: activeIntegration?.client_secret || null,
+    webhook_secret: activeIntegration?.webhook_secret || null,
+  };
+
+  if (!activeIntegration && provider === "mercadopago") {
+    credentials.access_token = MERCADO_PAGO_TOKEN || null;
+    credentials.webhook_secret = MERCADO_PAGO_WEBHOOK_SECRET || null;
+  }
+
+  if (provider === "mercadopago" && !credentials.access_token) {
+    throw new Error(
+      "Nenhuma integracao ativa encontrada para o dono do evento e o fallback global nao esta configurado.",
+    );
+  }
+
+  return {
+    ownerId,
+    provider,
+    integrationId: activeIntegration?.id || null,
+    credentials,
+  };
+}
+
+async function createPaymentForEvent({
+  supabase,
+  eventId,
   amount,
   description,
   cpf,
   name,
   metadata,
 }: {
+  supabase: any;
+  eventId: string;
   amount: number;
   description: string;
   cpf: string;
   name: string;
   metadata?: Record<string, unknown>;
 }) {
-  if (!MERCADO_PAGO_TOKEN) {
-    throw new Error("Mercado Pago token not configured");
-  }
-
-  const notificationUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/api/payments/mercadopago/webhook`;
-  const expiration = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-
-  const idempotencyKey =
-    (metadata?.inscricao_id ? `inscricao-${metadata.inscricao_id}` : null) ||
-    crypto.randomUUID();
-
-  const response = await fetch("https://api.mercadopago.com/v1/payments", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${MERCADO_PAGO_TOKEN}`,
-      "Content-Type": "application/json",
-      "X-Idempotency-Key": idempotencyKey,
-    },
-    body: JSON.stringify({
-      transaction_amount: amount,
-      description: sanitizeZapiMessage(description || "Inscricao"),
-      payment_method_id: "pix",
-      notification_url: notificationUrl,
-      date_of_expiration: expiration,
-      payer: {
-        email: `${cpf}@exemplo.com`,
-        first_name: name?.split(" ")[0] || "Participante",
-        last_name: name?.split(" ").slice(1).join(" ") || "",
-        identification: {
-          type: "CPF",
-          number: cpf,
-        },
-      },
-      metadata: metadata || {},
-    }),
+  const context = await resolvePaymentContextForEvent(supabase, eventId);
+  const paymentResult = await createPaymentByProvider(context.provider, {
+    amount,
+    description: sanitizeZapiMessage(description || "Inscricao"),
+    cpf,
+    name,
+    metadata,
+    webhookUrl: buildProviderWebhookUrl(context.provider),
+    credentials: context.credentials,
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Mercado Pago error: ${response.status} ${errorText}`);
-  }
-
-  return await response.json();
+  return { context, paymentResult };
 }
 
 async function createInscricaoWithPix({
@@ -792,7 +896,10 @@ async function createInscricaoWithPix({
   if (!effectivePayerCpf) {
     throw new Error("CPF do responsavel nao informado.");
   }
-  const pagamentoResponse = await createPixPayment({
+
+  const { context: paymentContext, paymentResult } = await createPaymentForEvent({
+    supabase,
+    eventId,
     amount: Number(total),
     description: `Inscricao ${inscricao.id}`,
     cpf: effectivePayerCpf,
@@ -800,19 +907,29 @@ async function createInscricaoWithPix({
     metadata: { inscricao_id: inscricao.id, evento_id: eventId },
   });
 
-  const pixData = pagamentoResponse?.point_of_interaction?.transaction_data || {};
-  const qrcode = pixData.qr_code || "";
-  const qrcodeBase64 = pixData.qr_code_base64 || "";
+  const internalStatus = mapProviderStatusToInternal(paymentResult.status);
+  const qrcode = paymentResult.copyAndPaste || "";
+  const qrcodeBase64 = paymentResult.qrCodeBase64 || "";
 
   await supabase.from("pagamentos").insert({
     inscricao_id: inscricao.id,
-    provider: "mercadopago",
-    provider_payment_id: String(pagamentoResponse.id),
-    status: pagamentoResponse.status === "approved" ? "PAID" : "PENDING",
+    user_id: paymentContext.ownerId,
+    integration_id: paymentContext.integrationId,
+    provider: paymentContext.provider,
+    provider_payment_id: paymentResult.providerPaymentId,
+    status: internalStatus,
     copiaecola: qrcode || null,
     qrcode: qrcodeBase64 || null,
-    expires_at: pixData.expiration_date || null,
+    expires_at: paymentResult.expiresAt || null,
+    paid_at: internalStatus === "PAID" ? new Date().toISOString() : null,
   });
+
+  if (internalStatus === "PAID") {
+    await supabase
+      .from("inscricoes")
+      .update({ status: "PAID" })
+      .eq("id", inscricao.id);
+  }
 
   return {
     inscricao_id: inscricao.id,
@@ -822,11 +939,12 @@ async function createInscricaoWithPix({
       nome: lote.nome,
       valor: lote.valor,
     },
+    payment_provider: paymentContext.provider,
     pix: {
       copiaecola: qrcode || null,
       qrcode_base64: qrcodeBase64 || null,
-      payment_id: String(pagamentoResponse.id),
-      expires_at: pixData.expiration_date || null,
+      payment_id: paymentResult.providerPaymentId,
+      expires_at: paymentResult.expiresAt || null,
     },
   };
 }
@@ -1228,7 +1346,7 @@ async function finalizeInscricao({
   if (!participantes || participantes.length === 0) {
     await sendText(
       phone,
-      "Nenhum participante válido foi informado. Envie *Inscrição* para tentar novamente.",
+      "Nenhum participante vÃ¡lido foi informado. Envie *InscriÃ§Ã£o* para tentar novamente.",
     );
     await resetSession(supabase, sessionId);
     return;
@@ -1238,7 +1356,7 @@ async function finalizeInscricao({
   if (!lote) {
     await sendText(
       phone,
-      "Não há lote vigente para este evento. Fale com a organização.",
+      "NÃ£o hÃ¡ lote vigente para este evento. Fale com a organizaÃ§Ã£o.",
     );
     await resetSession(supabase, sessionId);
     return;
@@ -1248,7 +1366,7 @@ async function finalizeInscricao({
   if (!Number.isFinite(total) || total <= 0) {
     await sendText(
       phone,
-      "Não foi possível calcular o valor do lote. Verifique o valor cadastrado.",
+      "NÃ£o foi possÃ­vel calcular o valor do lote. Verifique o valor cadastrado.",
     );
     await resetSession(supabase, sessionId);
     return;
@@ -1266,8 +1384,8 @@ async function finalizeInscricao({
     .single();
 
   if (inscricaoError || !inscricao) {
-    logger.error("Erro ao criar inscrição", { error: inscricaoError?.message });
-    await sendText(phone, "Erro ao registrar inscrição. Tente novamente.");
+    logger.error("Erro ao criar inscriÃ§Ã£o", { error: inscricaoError?.message });
+    await sendText(phone, "Erro ao registrar inscriÃ§Ã£o. Tente novamente.");
     await resetSession(supabase, sessionId);
     return;
   }
@@ -1306,44 +1424,59 @@ async function finalizeInscricao({
   }
 
   const first = participantes[0];
-  let pagamentoResponse: any;
+  let paymentContext: any;
+  let paymentResult: any;
   try {
-    pagamentoResponse = await createPixPayment({
+    const createdPayment = await createPaymentForEvent({
+      supabase,
+      eventId,
       amount: Number(total),
       description: `Inscricao ${inscricao.id}`,
       cpf: first.cpf,
       name: first.nome,
       metadata: { inscricao_id: inscricao.id, evento_id: eventId },
     });
+    paymentContext = createdPayment.context;
+    paymentResult = createdPayment.paymentResult;
   } catch (error) {
     logger.error("Erro ao gerar PIX", {
       error: error instanceof Error ? error.message : String(error),
     });
     await sendText(
       phone,
-      `Erro ao gerar o PIX. Sua inscrição foi registrada, mas o pagamento precisa ser feito com suporte. Detalhe: ${error instanceof Error ? error.message : "Erro Mercado Pago"}`,
+      `Erro ao gerar o PIX. Sua inscriÃ§Ã£o foi registrada, mas o pagamento precisa ser feito com suporte. Detalhe: ${error instanceof Error ? error.message : "Erro no provedor de pagamento"}`,
     );
     await resetSession(supabase, sessionId);
     return;
   }
 
-  const pixData = pagamentoResponse?.point_of_interaction?.transaction_data || {};
-  const qrcode = pixData.qr_code || "";
-  const qrcodeBase64 = pixData.qr_code_base64 || "";
+  const internalStatus = mapProviderStatusToInternal(paymentResult.status);
+  const qrcode = paymentResult.copyAndPaste || "";
+  const qrcodeBase64 = paymentResult.qrCodeBase64 || "";
 
   await supabase.from("pagamentos").insert({
     inscricao_id: inscricao.id,
-    provider: "mercadopago",
-    provider_payment_id: String(pagamentoResponse.id),
-    status: pagamentoResponse.status === "approved" ? "PAID" : "PENDING",
+    user_id: paymentContext.ownerId,
+    integration_id: paymentContext.integrationId,
+    provider: paymentContext.provider,
+    provider_payment_id: paymentResult.providerPaymentId,
+    status: internalStatus,
     copiaecola: qrcode || null,
     qrcode: qrcodeBase64 || null,
-    expires_at: pixData.expiration_date || null,
+    expires_at: paymentResult.expiresAt || null,
+    paid_at: internalStatus === "PAID" ? new Date().toISOString() : null,
   });
+
+  if (internalStatus === "PAID") {
+    await supabase
+      .from("inscricoes")
+      .update({ status: "PAID" })
+      .eq("id", inscricao.id);
+  }
 
   await sendText(
     phone,
-    `✅ Inscrição registrada!\nValor total: R$ ${total.toFixed(2).replace(".", ",")}\nPague via PIX abaixo (válido por 24h):`,
+    `âœ… InscriÃ§Ã£o registrada!\nValor total: R$ ${total.toFixed(2).replace(".", ",")}\nPague via PIX abaixo (vÃ¡lido por 24h):`,
   );
   if (qrcodeBase64) {
     await sendImage(phone, `data:image/png;base64,${qrcodeBase64}`);
@@ -1382,7 +1515,7 @@ async function handleBotMessage(payload: {
     await resetSession(supabase, session.id);
     await sendText(
       phone,
-      "Sessão reiniciada. Envie *Inscrição* para começar novamente.",
+      "SessÃ£o reiniciada. Envie *InscriÃ§Ã£o* para comeÃ§ar novamente.",
     );
     return;
   }
@@ -1472,7 +1605,7 @@ async function handleBotMessage(payload: {
         });
       await sendText(
         phone,
-        "Quantos participantes deseja inscrever?\nResponda apenas com um número.",
+        "Quantos participantes deseja inscrever?\nResponda apenas com um nÃºmero.",
       );
       return;
     }
@@ -1485,7 +1618,7 @@ async function handleBotMessage(payload: {
       });
       await sendText(
         phone,
-        `Temos mais de um evento aberto. Escolha um:\n\n${options}\nResponda apenas com o número.`,
+        `Temos mais de um evento aberto. Escolha um:\n\n${options}\nResponda apenas com o nÃºmero.`,
       );
       return;
     }
@@ -1567,13 +1700,13 @@ async function handleBotMessage(payload: {
   if (session.state === "consulta_pix_cpf") {
     const cpf = normalizeCpf(messageText);
     if (!isValidCpf(cpf)) {
-      await sendText(phone, "CPF inválido. Envie um CPF válido com 11 dígitos.");
+      await sendText(phone, "CPF invÃ¡lido. Envie um CPF vÃ¡lido com 11 dÃ­gitos.");
       return;
     }
 
     const pagamento = await getPendingPixByCpf(supabase, cpf);
     if (!pagamento) {
-      await sendText(phone, "Não encontrei PIX pendente para esse CPF.");
+      await sendText(phone, "NÃ£o encontrei PIX pendente para esse CPF.");
       await resetSession(supabase, session.id);
       return;
     }
@@ -1583,7 +1716,7 @@ async function handleBotMessage(payload: {
       .replace(".", ",");
     const validade = pagamento.expires_at
       ? new Date(pagamento.expires_at).toLocaleString("pt-BR")
-      : "não informado";
+      : "nÃ£o informado";
     await sendText(
       phone,
       `PIX pendente encontrado.\nValor: R$ ${valor}\nValidade: ${validade}`,
@@ -1606,7 +1739,7 @@ async function handleBotMessage(payload: {
       : [];
     const choice = parseInt(messageText.replace(/\D/g, ""), 10);
     if (!choice || choice < 1 || choice > options.length) {
-      await sendText(phone, "Opção inválida. Responda apenas com o número do evento.");
+      await sendText(phone, "OpÃ§Ã£o invÃ¡lida. Responda apenas com o nÃºmero do evento.");
       return;
     }
     const selected = options[choice - 1];
@@ -1616,7 +1749,7 @@ async function handleBotMessage(payload: {
     });
     await sendText(
       phone,
-      "Quantos participantes deseja inscrever?\nResponda apenas com um número.",
+      "Quantos participantes deseja inscrever?\nResponda apenas com um nÃºmero.",
     );
     return;
   }
@@ -1624,7 +1757,7 @@ async function handleBotMessage(payload: {
   if (session.state === "quantidade") {
     const quantidade = parseQuantidade(messageText);
     if (!quantidade) {
-      await sendText(phone, "Informe apenas um número válido para a quantidade.");
+      await sendText(phone, "Informe apenas um nÃºmero vÃ¡lido para a quantidade.");
       return;
     }
     await updateSession(supabase, session.id, "coletar_participante", {
@@ -1637,12 +1770,12 @@ async function handleBotMessage(payload: {
     if (quantidade === 1) {
       await sendText(
         phone,
-        "Você vai cadastrar 1 participante.\nEnvie os dados neste formato (uma única mensagem):\n\nNome: \nCPF: \nData de Nascimento (DD/MM/AAAA): \nGênero: \nTelefone:\n\nDepois você escolherá o distrito e a igreja.",
+        "VocÃª vai cadastrar 1 participante.\nEnvie os dados neste formato (uma Ãºnica mensagem):\n\nNome: \nCPF: \nData de Nascimento (DD/MM/AAAA): \nGÃªnero: \nTelefone:\n\nDepois vocÃª escolherÃ¡ o distrito e a igreja.",
       );
     } else {
       await sendText(
         phone,
-        `Você vai cadastrar ${quantidade} participantes.\nEnvie 1 participante por mensagem neste formato:\n\nNome: \nCPF: \nData de Nascimento (DD/MM/AAAA): \nGênero: \nTelefone:\n\nApós cada participante, vou pedir o distrito e a igreja, e depois o próximo participante.`,
+        `VocÃª vai cadastrar ${quantidade} participantes.\nEnvie 1 participante por mensagem neste formato:\n\nNome: \nCPF: \nData de Nascimento (DD/MM/AAAA): \nGÃªnero: \nTelefone:\n\nApÃ³s cada participante, vou pedir o distrito e a igreja, e depois o prÃ³ximo participante.`,
       );
     }
     return;
@@ -1660,14 +1793,14 @@ async function handleBotMessage(payload: {
     if (!parsed.nome || !parsed.cpf) {
       await sendText(
         phone,
-        "Não consegui entender. Envie no formato:\nNome: \nCPF: \nData de Nascimento (DD/MM/AAAA): \nGênero: \nTelefone:",
+        "NÃ£o consegui entender. Envie no formato:\nNome: \nCPF: \nData de Nascimento (DD/MM/AAAA): \nGÃªnero: \nTelefone:",
       );
       return;
     }
 
     const cpf = normalizeCpf(parsed.cpf);
     if (!isValidCpf(cpf)) {
-      await sendText(phone, "CPF inválido. Envie um CPF válido com 11 dígitos.");
+      await sendText(phone, "CPF invÃ¡lido. Envie um CPF vÃ¡lido com 11 dÃ­gitos.");
       return;
     }
 
@@ -1681,7 +1814,7 @@ async function handleBotMessage(payload: {
     if (existingCpf && existingCpf.length > 0) {
       await sendText(
         phone,
-        "❌ Este CPF já está inscrito neste evento. Não é permitido duplicidade.",
+        "âŒ Este CPF jÃ¡ estÃ¡ inscrito neste evento. NÃ£o Ã© permitido duplicidade.",
       );
       const nextIndex = currentIndex + 1;
       if (nextIndex <= quantidade) {
@@ -1693,7 +1826,7 @@ async function handleBotMessage(payload: {
         });
         await sendText(
           phone,
-          `Envie os dados do Participante ${nextIndex}:\n\nNome: \nCPF: \nData de Nascimento (DD/MM/AAAA): \nGênero: \nTelefone:`,
+          `Envie os dados do Participante ${nextIndex}:\n\nNome: \nCPF: \nData de Nascimento (DD/MM/AAAA): \nGÃªnero: \nTelefone:`,
         );
         return;
       }
@@ -1742,7 +1875,7 @@ async function handleBotMessage(payload: {
           .join("\n");
         await sendText(
           phone,
-          `Selecione a igreja do Participante ${currentIndex}:\n\n${options}\n\nResponda apenas com o número. Se não aparecer, responda 0.`,
+          `Selecione a igreja do Participante ${currentIndex}:\n\n${options}\n\nResponda apenas com o nÃºmero. Se nÃ£o aparecer, responda 0.`,
         );
         return;
       }
@@ -1759,7 +1892,7 @@ async function handleBotMessage(payload: {
         .join("\n");
       await sendText(
         phone,
-        `Selecione o distrito do Participante ${currentIndex}:\n\n${options}\n\nResponda apenas com o número. Se não aparecer, responda 0.`,
+        `Selecione o distrito do Participante ${currentIndex}:\n\n${options}\n\nResponda apenas com o nÃºmero. Se nÃ£o aparecer, responda 0.`,
       );
       return;
     }
@@ -1774,7 +1907,7 @@ async function handleBotMessage(payload: {
       });
       await sendText(
         phone,
-        `Envie os dados do Participante ${nextIndex}:\n\nNome: \nCPF: \nData de Nascimento (DD/MM/AAAA): \nGênero: \nTelefone:`,
+        `Envie os dados do Participante ${nextIndex}:\n\nNome: \nCPF: \nData de Nascimento (DD/MM/AAAA): \nGÃªnero: \nTelefone:`,
       );
       return;
     }
@@ -1795,7 +1928,7 @@ async function handleBotMessage(payload: {
       : [];
     const choice = parseInt(messageText.replace(/\D/g, ""), 10);
     if (Number.isNaN(choice) || choice < 0 || choice > options.length) {
-      await sendText(phone, "Opção inválida. Responda com o número da igreja.");
+      await sendText(phone, "OpÃ§Ã£o invÃ¡lida. Responda com o nÃºmero da igreja.");
       return;
     }
 
@@ -1804,7 +1937,7 @@ async function handleBotMessage(payload: {
       : [];
     const pending = sessionPayload.pendingParticipant as any;
     if (!pending?.nome || !pending?.cpf) {
-      await sendText(phone, "Dados do participante não encontrados. Envie novamente.");
+      await sendText(phone, "Dados do participante nÃ£o encontrados. Envie novamente.");
       await updateSession(supabase, session.id, "coletar_participante", {
         ...sessionPayload,
         lastMessageId: payload.messageId,
@@ -1834,7 +1967,7 @@ async function handleBotMessage(payload: {
       });
       await sendText(
         phone,
-        `Envie os dados do Participante ${nextIndex}:\n\nNome: \nCPF: \nData de Nascimento (DD/MM/AAAA): \nGênero: \nDistrito: \nTelefone:`,
+        `Envie os dados do Participante ${nextIndex}:\n\nNome: \nCPF: \nData de Nascimento (DD/MM/AAAA): \nGÃªnero: \nDistrito: \nTelefone:`,
       );
       return;
     }
@@ -1855,7 +1988,7 @@ async function handleBotMessage(payload: {
       : [];
     const choice = parseInt(messageText.replace(/\D/g, ""), 10);
     if (Number.isNaN(choice) || choice < 0 || choice > options.length) {
-      await sendText(phone, "Opção inválida. Responda com o número do distrito.");
+      await sendText(phone, "OpÃ§Ã£o invÃ¡lida. Responda com o nÃºmero do distrito.");
       return;
     }
 
@@ -1864,7 +1997,7 @@ async function handleBotMessage(payload: {
       : [];
     const pending = sessionPayload.pendingParticipant as any;
     if (!pending?.nome || !pending?.cpf) {
-      await sendText(phone, "Dados do participante não encontrados. Envie novamente.");
+      await sendText(phone, "Dados do participante nÃ£o encontrados. Envie novamente.");
       await updateSession(supabase, session.id, "coletar_participante", {
         ...sessionPayload,
         lastMessageId: payload.messageId,
@@ -1902,7 +2035,7 @@ async function handleBotMessage(payload: {
         });
         await sendText(
           phone,
-          `Envie os dados do Participante ${nextIndex}:\n\nNome: \nCPF: \nData de Nascimento (DD/MM/AAAA): \nGênero: \nTelefone:`,
+          `Envie os dados do Participante ${nextIndex}:\n\nNome: \nCPF: \nData de Nascimento (DD/MM/AAAA): \nGÃªnero: \nTelefone:`,
         );
         return;
       }
@@ -1929,7 +2062,7 @@ async function handleBotMessage(payload: {
       .join("\n");
     await sendText(
       phone,
-      `Selecione a igreja do Participante ${Number(sessionPayload.currentIndex || 1)}:\n\n${optionsText}\n\nResponda apenas com o número. Se não aparecer, responda 0.`,
+      `Selecione a igreja do Participante ${Number(sessionPayload.currentIndex || 1)}:\n\n${optionsText}\n\nResponda apenas com o nÃºmero. Se nÃ£o aparecer, responda 0.`,
     );
     return;
   }
@@ -1937,7 +2070,7 @@ async function handleBotMessage(payload: {
   if (session.state === "consulta_cpf") {
     const cpf = normalizeCpf(messageText);
     if (cpf.length !== 11) {
-      await sendText(phone, "CPF inválido. Envie apenas os números (11 dígitos).");
+      await sendText(phone, "CPF invÃ¡lido. Envie apenas os nÃºmeros (11 dÃ­gitos).");
       return;
     }
 
@@ -1949,12 +2082,12 @@ async function handleBotMessage(payload: {
 
     if (error) {
       logger.error("Erro na consulta CPF", { error: error.message });
-      await sendText(phone, "Erro ao consultar inscrição.");
+      await sendText(phone, "Erro ao consultar inscriÃ§Ã£o.");
       return;
     }
 
     if (!data || data.length === 0) {
-      await sendText(phone, "❌ Nenhuma inscrição encontrada para esse CPF.");
+      await sendText(phone, "âŒ Nenhuma inscriÃ§Ã£o encontrada para esse CPF.");
       await resetSession(supabase, session.id);
       return;
     }
@@ -1967,7 +2100,7 @@ async function handleBotMessage(payload: {
         const dataInscricao = inscricao?.created_at
           ? new Date(inscricao.created_at).toLocaleDateString("pt-BR")
           : "-";
-        return `✅ INSCRIÇÃO ENCONTRADA\nNome: ${item.nome}\nEvento: ${evento}\nStatus: ${status}\nData: ${dataInscricao}`;
+        return `âœ… INSCRIÃ‡ÃƒO ENCONTRADA\nNome: ${item.nome}\nEvento: ${evento}\nStatus: ${status}\nData: ${dataInscricao}`;
       })
       .join("\n\n");
 
@@ -1976,7 +2109,7 @@ async function handleBotMessage(payload: {
     return;
   }
 
-  await sendText(phone, "Fluxo não reconhecido. Envie *Inscrição* para começar.");
+  await sendText(phone, "Fluxo nÃ£o reconhecido. Envie *InscriÃ§Ã£o* para comeÃ§ar.");
   await updateSession(supabase, session.id, "idle", {
     lastMessageId: payload.messageId,
   });
@@ -1998,7 +2131,7 @@ async function handleWhatsappWebhook(req: Request) {
   const body = await req.json().catch(() => ({}));
   const message = extractMessagePayload(body);
   if (!message || !message.phone) {
-    logger.warn("Webhook inválido", { body });
+    logger.warn("Webhook invÃ¡lido", { body });
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -2080,54 +2213,115 @@ async function ensureStorageBucket(supabase: any, bucketName: string) {
   }
 }
 
-async function handleMercadoPagoWebhook(req: Request) {
-  const body = await req.json().catch(() => ({}));
+function resolveWebhookProvider(pathname: string, body: any) {
+  const segments = pathname.split("/").filter(Boolean);
+  const paymentsIndex = segments.lastIndexOf("payments");
+  const routeProvider =
+    paymentsIndex >= 0 &&
+    segments.length > paymentsIndex + 2 &&
+    segments[paymentsIndex + 2] === "webhook"
+      ? segments[paymentsIndex + 1]
+      : null;
+
+  return normalizeProviderName(routeProvider || body?.provider || "mercadopago");
+}
+
+function resolveWebhookPaymentId(provider: string, req: Request, body: any) {
   const query = new URL(req.url).searchParams;
 
-  const signature = req.headers.get("x-signature") || "";
-  const requestId = req.headers.get("x-request-id") || "";
-  if (MERCADO_PAGO_WEBHOOK_SECRET && signature) {
-    // Optional signature validation can be added here if needed
+  if (provider === "mercadopago") {
+    return body?.data?.id || body?.id || query.get("id") || query.get("data.id");
   }
 
-  const paymentId =
-    body?.data?.id || body?.id || query.get("id") || query.get("data.id");
+  return (
+    body?.data?.id ||
+    body?.payment_id ||
+    body?.id ||
+    query.get("payment_id") ||
+    query.get("id")
+  );
+}
+
+async function resolvePaymentCredentialsForWebhook({
+  supabase,
+  pagamento,
+  provider,
+}: {
+  supabase: any;
+  pagamento: any;
+  provider: string;
+}) {
+  let integration: any = null;
+  if (pagamento.integration_id) {
+    const { data, error } = await supabase
+      .from("payment_integrations")
+      .select(
+        "id, user_id, provider, access_token, public_key, client_id, client_secret, webhook_secret",
+      )
+      .eq("id", pagamento.integration_id)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(`Erro ao buscar integracao do pagamento: ${error.message}`);
+    }
+
+    integration = data || null;
+  }
+
+  if (
+    integration?.user_id &&
+    pagamento.user_id &&
+    integration.user_id !== pagamento.user_id
+  ) {
+    throw new Error("payment.user_id does not match integration.user_id");
+  }
+
+  const credentials = {
+    access_token: integration?.access_token || null,
+    public_key: integration?.public_key || null,
+    client_id: integration?.client_id || null,
+    client_secret: integration?.client_secret || null,
+    webhook_secret: integration?.webhook_secret || null,
+  };
+
+  if (!integration && provider === "mercadopago") {
+    credentials.access_token = MERCADO_PAGO_TOKEN || null;
+    credentials.webhook_secret = MERCADO_PAGO_WEBHOOK_SECRET || null;
+  }
+
+  return { credentials };
+}
+
+async function handlePaymentWebhook(req: Request) {
+  const body = await req.json().catch(() => ({}));
+  const pathname = new URL(req.url).pathname;
+  const requestId = req.headers.get("x-request-id") || "";
+
+  const provider = resolveWebhookProvider(pathname, body);
+  const paymentId = resolveWebhookPaymentId(provider, req, body);
 
   if (!paymentId) {
-    logger.warn("Webhook MP sem paymentId", { body, requestId });
+    logger.warn("Webhook de pagamento sem paymentId", { provider, body, requestId });
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
-  const paymentResponse = await fetch(
-    `https://api.mercadopago.com/v1/payments/${paymentId}`,
-    {
-      headers: { Authorization: `Bearer ${MERCADO_PAGO_TOKEN}` },
-    },
-  );
-  if (!paymentResponse.ok) {
-    const text = await paymentResponse.text();
-    logger.error("Erro ao buscar pagamento", { paymentId, text });
-    return new Response(JSON.stringify({ error: "Payment not found" }), {
-      status: 200,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
-
-  const paymentData = await paymentResponse.json();
-  const status = paymentData.status;
-
   const supabase = getSupabaseAdmin();
   const { data: pagamento, error } = await supabase
     .from("pagamentos")
     .select("*, inscricoes(evento_id, whatsapp)")
+    .eq("provider", provider)
     .eq("provider_payment_id", String(paymentId))
     .maybeSingle();
 
   if (error) {
-    logger.error("Erro ao buscar pagamento no banco", { error: error.message });
+    logger.error("Erro ao buscar pagamento no banco", {
+      provider,
+      paymentId,
+      error: error.message,
+    });
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -2135,25 +2329,77 @@ async function handleMercadoPagoWebhook(req: Request) {
   }
 
   if (!pagamento) {
-    logger.warn("Pagamento não encontrado no banco", { paymentId });
+    logger.warn("Pagamento nao encontrado no banco", { provider, paymentId });
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
-  if (pagamento.status === "PAID") {
+  let credentials: any;
+  try {
+    const webhookContext = await resolvePaymentCredentialsForWebhook({
+      supabase,
+      pagamento,
+      provider,
+    });
+    credentials = webhookContext.credentials;
+  } catch (contextError) {
+    logger.error("Falha no contexto do webhook", {
+      provider,
+      paymentId,
+      error: contextError instanceof Error ? contextError.message : String(contextError),
+    });
+    return new Response(JSON.stringify({ error: "Invalid payment context" }), {
+      status: 403,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  if (!isWebhookSecretValid(req, credentials.webhook_secret)) {
+    logger.warn("Webhook com secret invalido", { provider, paymentId });
+    return new Response(JSON.stringify({ error: "Invalid webhook secret" }), {
+      status: 401,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  let providerStatus: any;
+  try {
+    providerStatus = await checkStatusByProvider(provider, {
+      providerPaymentId: String(paymentId),
+      credentials,
+    });
+  } catch (statusError) {
+    logger.error("Erro ao consultar status no provider", {
+      provider,
+      paymentId,
+      error: statusError instanceof Error ? statusError.message : String(statusError),
+    });
+    return new Response(JSON.stringify({ error: "Provider status lookup failed" }), {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const internalStatus = mapProviderStatusToInternal(providerStatus.status);
+
+  if (pagamento.status === "PAID" && internalStatus === "PAID") {
     return new Response(JSON.stringify({ ok: true }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
-  if (status === "approved") {
-    await supabase
-      .from("pagamentos")
-      .update({ status: "PAID", paid_at: new Date().toISOString() })
-      .eq("id", pagamento.id);
+  await supabase
+    .from("pagamentos")
+    .update({
+      status: internalStatus,
+      paid_at: internalStatus === "PAID" ? new Date().toISOString() : pagamento.paid_at,
+    })
+    .eq("id", pagamento.id);
+
+  if (internalStatus === "PAID") {
     await supabase
       .from("inscricoes")
       .update({ status: "PAID" })
@@ -2196,11 +2442,16 @@ async function handleMercadoPagoWebhook(req: Request) {
 
     if (pagamento.inscricoes?.whatsapp) {
       const phone = pagamento.inscricoes.whatsapp;
-      await sendText(phone, "🎉 Pagamento aprovado! Sua inscrição foi confirmada.");
+      await sendText(phone, "Pagamento aprovado! Sua inscricao foi confirmada.");
       if (publicUrl?.publicUrl) {
         await sendText(phone, `Comprovante: ${publicUrl.publicUrl}`);
       }
     }
+  } else if (internalStatus === "CANCELLED") {
+    await supabase
+      .from("inscricoes")
+      .update({ status: "CANCELLED" })
+      .eq("id", pagamento.inscricao_id);
   }
 
   return new Response(JSON.stringify({ ok: true }), {
@@ -2208,7 +2459,6 @@ async function handleMercadoPagoWebhook(req: Request) {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 }
-
 async function handleReports(req: Request, routeParts: string[]) {
   const supabase = getSupabaseAdmin();
   const eventId = routeParts[4];
@@ -2243,8 +2493,8 @@ async function handleReports(req: Request, routeParts: string[]) {
   const porDistrito = new Map<string, number>();
 
   (participantes || []).forEach((p: any) => {
-    const igrejaNome = p.igrejas?.nome || "Não informado";
-    const distritoNome = p.distritos?.nome || "Não informado";
+    const igrejaNome = p.igrejas?.nome || "NÃ£o informado";
+    const distritoNome = p.distritos?.nome || "NÃ£o informado";
     const status = p.inscricoes?.[0]?.status || p.inscricoes?.status || "PENDING";
 
     if (!porIgreja.has(igrejaNome)) porIgreja.set(igrejaNome, { total: 0, pago: 0 });
@@ -2314,7 +2564,7 @@ async function handleReports(req: Request, routeParts: string[]) {
   let height = page.getSize().height;
 
   let y = height - 50;
-  page.drawText(`Relatório do Evento: ${evento?.nome || eventId}`, {
+  page.drawText(`RelatÃ³rio do Evento: ${evento?.nome || eventId}`, {
     x: 50,
     y,
     size: 14,
@@ -2374,11 +2624,65 @@ serve(async (req) => {
       return handleWhatsappWebhook(req);
     }
 
-    if (
-      pathMatch("/payments/mercadopago/webhook") &&
-      req.method === "POST"
-    ) {
-      return handleMercadoPagoWebhook(req);
+    if (pathMatch("/payments/") && pathMatch("/webhook") && req.method === "POST") {
+      return handlePaymentWebhook(req);
+    }
+
+    const integrationRoute = matchIntegrationRoute(pathname);
+    if (integrationRoute.matched) {
+      const supabase = getSupabaseAdmin();
+      const auth = await requireAuthenticatedUser({
+        req,
+        supabase,
+        corsHeaders,
+      });
+
+      if (auth.response) {
+        return auth.response;
+      }
+
+      const userId = auth.user.id;
+
+      if (req.method === "GET" && !integrationRoute.id && !integrationRoute.activate) {
+        return listUserIntegrations({ supabase, userId, corsHeaders });
+      }
+
+      if (req.method === "POST" && !integrationRoute.id && !integrationRoute.activate) {
+        return createUserIntegration({ req, supabase, userId, corsHeaders });
+      }
+
+      if (req.method === "PUT" && integrationRoute.id && !integrationRoute.activate) {
+        return updateUserIntegration({
+          req,
+          supabase,
+          userId,
+          integrationId: integrationRoute.id,
+          corsHeaders,
+        });
+      }
+
+      if (req.method === "DELETE" && integrationRoute.id && !integrationRoute.activate) {
+        return deleteUserIntegration({
+          supabase,
+          userId,
+          integrationId: integrationRoute.id,
+          corsHeaders,
+        });
+      }
+
+      if (req.method === "PUT" && integrationRoute.id && integrationRoute.activate) {
+        return activateUserIntegration({
+          supabase,
+          userId,
+          integrationId: integrationRoute.id,
+          corsHeaders,
+        });
+      }
+
+      return new Response(JSON.stringify({ error: "Method not allowed" }), {
+        status: 405,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     if (pathMatch("/admin/reports/event/") && req.method === "GET") {
@@ -2412,3 +2716,4 @@ serve(async (req) => {
     });
   }
 });
+
