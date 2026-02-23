@@ -54,7 +54,7 @@ function MatchCard({
         {confronto.equipe1_imagem ? (
           <div
             className="h-6 w-6 rounded-full overflow-hidden border-2 flex-shrink-0"
-            style={{ borderColor: confronto.equipe1_cor || 'hsl(var(--border))' }}
+            style={{ borderColor: confronto.equipe1_cor || 'rgb(var(--border-rgb))' }}
           >
             <img
               src={confronto.equipe1_imagem}
@@ -96,7 +96,7 @@ function MatchCard({
         {confronto.equipe2_imagem ? (
           <div
             className="h-6 w-6 rounded-full overflow-hidden border-2 flex-shrink-0"
-            style={{ borderColor: confronto.equipe2_cor || 'hsl(var(--border))' }}
+            style={{ borderColor: confronto.equipe2_cor || 'rgb(var(--border-rgb))' }}
           >
             <img
               src={confronto.equipe2_imagem}

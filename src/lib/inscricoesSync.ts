@@ -15,10 +15,14 @@ type ParticipanteRow = {
   distritos?: { nome?: string | null } | null;
 };
 
-const mapStatus = (status?: string | null): 'PAID' | 'PENDING' | 'CANCELLED' => {
-  const upper = status?.toUpperCase() || '';
+const mapStatus = (status?: string | null): string => {
+  const upper = String(status || '').trim().toUpperCase();
+  if (upper === 'MANUAL') return 'MANUAL';
+  if (upper === 'CONFIRMED' || upper === 'CONFIRMADA') return 'CONFIRMED';
+  if (upper === 'REFUNDED' || upper === 'ESTORNADO') return 'REFUNDED';
   if (upper === 'PAID' || upper === 'APPROVED') return 'PAID';
   if (upper === 'CANCELLED' || upper === 'CANCELED') return 'CANCELLED';
+  if (upper) return upper;
   return 'PENDING';
 };
 
@@ -104,6 +108,12 @@ export async function syncInscricoesToInscritos(eventId?: string): Promise<SyncR
       .select('numero, numero_original')
       .eq('user_id', user.id);
 
+    const existingByOriginal = new Map(
+      (existingInscritos || [])
+        .filter((row) => Boolean(row.numero_original))
+        .map((row) => [String(row.numero_original), row]),
+    );
+
     const existingSet = new Set(
       (existingInscritos || [])
         .map((row) => row.numero_original)
@@ -116,9 +126,7 @@ export async function syncInscricoesToInscritos(eventId?: string): Promise<SyncR
     );
 
     const novos = lista.filter((row) => !existingSet.has(row.id));
-    if (novos.length === 0) {
-      return { success: true, count: 0 };
-    }
+    const atualizacoes = lista.filter((row) => existingSet.has(row.id));
 
     const inscritosApi = novos.map((row, index) => ({
       user_id: user.id,
@@ -136,14 +144,43 @@ export async function syncInscricoesToInscritos(eventId?: string): Promise<SyncR
       numero_pulseira: String(maxNumero + index + 1),
     }));
 
-    const { error: insertError } = await supabase
-      .from('inscritos')
-      .insert(inscritosApi);
-    if (insertError) {
-      return { success: false, count: 0, error: insertError.message };
+    if (inscritosApi.length > 0) {
+      const { error: insertError } = await supabase
+        .from('inscritos')
+        .insert(inscritosApi);
+      if (insertError) {
+        return { success: false, count: 0, error: insertError.message };
+      }
     }
 
-    return { success: true, count: inscritosApi.length };
+    let updatedCount = 0;
+    for (const row of atualizacoes) {
+      const existing = existingByOriginal.get(row.id);
+      if (!existing) continue;
+
+      const payload = {
+        nome: String(row.nome || `Participante ${existing.numero}`),
+        data_nascimento: row.nascimento || null,
+        idade: row.nascimento ? calcularIdade(row.nascimento) : 0,
+        igreja: row.igrejas?.nome || 'Nao informado',
+        distrito: row.distritos?.nome || 'Nao informado',
+        status_pagamento: mapStatus(row.inscricoes?.status),
+        lote_id: resolveLoteId(row),
+      };
+
+      const { error: updateError } = await supabase
+        .from('inscritos')
+        .update(payload)
+        .eq('user_id', user.id)
+        .eq('numero_original', row.id);
+
+      if (updateError) {
+        return { success: false, count: 0, error: updateError.message };
+      }
+      updatedCount += 1;
+    }
+
+    return { success: true, count: inscritosApi.length + updatedCount };
   } catch (error) {
     return {
       success: false,

@@ -29,7 +29,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/sorteio', icon: Shuffle, label: 'Sorteio' },
-  { to: '/inscritos', icon: Users, label: 'Inscritos' },
+  { to: '/inscricoes', icon: Users, label: 'Inscrições' },
   { to: '/equipes', icon: Users2, label: 'Equipes' },
   { to: '/gincanas', icon: Trophy, label: 'Gincanas' },
   { to: '/competicoes', icon: Swords, label: 'Competições' },
@@ -50,13 +50,19 @@ export function Sidebar() {
   const location = useLocation();
   const isOnline = useOnlineStatus();
   const { user, profile, signOut } = useAuth();
+  const fallbackNome =
+    (user?.user_metadata?.nome as string | undefined) ||
+    (user?.user_metadata?.name as string | undefined) ||
+    (user?.user_metadata?.full_name as string | undefined) ||
+    null;
+  const nomeExibicao = profile?.nome || fallbackNome || user?.email?.split('@')[0] || 'Usuário';
 
   const handleLogout = async () => {
     await signOut();
   };
 
-  const userInitials = profile?.nome 
-    ? profile.nome.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
+  const userInitials = nomeExibicao
+    ? nomeExibicao.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
     : user?.email?.[0]?.toUpperCase() || 'U';
 
   return (
@@ -107,7 +113,7 @@ export function Sidebar() {
               </Avatar>
               <div className="flex-1 min-w-0 space-y-0.5">
                 <p className="text-sm font-medium text-foreground break-words leading-tight">
-                  {profile?.nome || 'Usuário'}
+                  {nomeExibicao}
                 </p>
                 <p className="text-[11px] text-muted-foreground break-words leading-tight tracking-tight">
                   {user.email}

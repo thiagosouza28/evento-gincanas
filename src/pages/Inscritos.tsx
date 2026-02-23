@@ -4,13 +4,12 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { useInscritos, useSorteios } from '@/hooks/useDatabase';
-import { Search, Users, Loader2, RefreshCw, FileDown, ChevronDown, Pencil, Trash2, MoreHorizontal, ArrowUpDown } from 'lucide-react';
+import { Search, Users, Loader2, RefreshCw, FileDown, ChevronDown, Pencil, Trash2, ArrowUpDown } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AddInscritoForm } from '@/components/sorteio/AddInscritoForm';
 import { syncInscricoesToInscritos } from '@/lib/inscricoesSync';
@@ -24,21 +23,20 @@ import { useAuth } from '@/contexts/AuthContext';
 
 const DEFAULT_PHOTO = '/placeholder.svg';
 
-const statusLabels: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
-  PAID: { label: 'Pago', variant: 'default' },
-  PENDING: { label: 'Pendente', variant: 'secondary' },
+const statusLabels: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' | 'warning' }> = {
+  PAID: { label: 'Pago', variant: 'success' },
+  CONFIRMED: { label: 'Confirmado', variant: 'secondary' },
+  PENDING: { label: 'Pendente', variant: 'warning' },
   CANCELLED: { label: 'Cancelado', variant: 'destructive' },
+  REFUNDED: { label: 'Estornado', variant: 'outline' },
   MANUAL: { label: 'Manual', variant: 'outline' },
 };
 
-// Helper to get valid status
-const getValidStatus = (status: string | undefined): string => {
-  if (!status) return 'PENDING';
-  const upperStatus = status.toUpperCase();
-  if (['PAID', 'PENDING', 'CANCELLED', 'MANUAL'].includes(upperStatus)) {
-    return upperStatus;
-  }
-  return 'PENDING';
+const getStatusInfo = (status: string | undefined) => {
+  const upperStatus = String(status || '').trim().toUpperCase();
+  if (!upperStatus) return statusLabels.PENDING;
+  if (statusLabels[upperStatus]) return statusLabels[upperStatus];
+  return { label: upperStatus, variant: 'outline' as const };
 };
 
 type SortOption = 'numero-asc' | 'numero-desc' | 'nome-asc' | 'nome-desc';
@@ -65,13 +63,11 @@ const Inscritos = () => {
   const [ageFilter, setAgeFilter] = useState<AgeFilter>('all');
   const [selectedLote, setSelectedLote] = useState<string>('all');
   const [syncingInscricoes, setSyncingInscricoes] = useState(false);
-  const [eventosInscricoes, setEventosInscricoes] = useState<Array<{ id: string; name: string }>>([]);
-  const [eventosInscricoesLoading, setEventosInscricoesLoading] = useState(false);
-  const [selectedEventoInscricoes, setSelectedEventoInscricoes] = useState<string>('all');
+  const [activeEventoInscricoes, setActiveEventoInscricoes] = useState<{ id: string; name: string } | null>(null);
+  const [activeEventoInscricoesLoading, setActiveEventoInscricoesLoading] = useState(false);
   const [lotes, setLotes] = useState<LoteRow[]>([]);
   const [participantesLookup, setParticipantesLookup] = useState<Map<string, ParticipanteLookup>>(new Map());
-  
-  // Modal de edição
+
   const [editingInscrito, setEditingInscrito] = useState<Inscrito | null>(null);
   const [editForm, setEditForm] = useState({
     nome: '',
@@ -80,37 +76,41 @@ const Inscritos = () => {
     distrito: '',
   });
   const [saving, setSaving] = useState(false);
-  
+
   const { inscritos, loading: inscritosLoading, reload: reloadInscritos, saveInscrito, deleteInscrito } = useInscritos();
   const { sorteios } = useSorteios();
   const { eventoNome } = useEventoNome();
-  
+
   const sorteadosSet = useMemo(() => new Set(sorteios.map(s => s.numeroInscrito)), [sorteios]);
 
   useEffect(() => {
     let active = true;
-    const loadEventosInscricoes = async () => {
+    const loadEventoAtivo = async () => {
       if (!user?.id) {
         if (active) {
-          setEventosInscricoes([]);
-          setEventosInscricoesLoading(false);
+          setActiveEventoInscricoes(null);
+          setActiveEventoInscricoesLoading(false);
         }
         return;
       }
-      setEventosInscricoesLoading(true);
+      setActiveEventoInscricoesLoading(true);
       const { data, error } = await supabase
         .from('eventos')
         .select('id, nome')
         .eq('owner_id', user.id)
-        .order('nome');
+        .eq('status', 'ativo')
+        .order('data_inicio', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(1);
       if (!error && active) {
-        setEventosInscricoes((data || []).map((row) => ({ id: row.id, name: row.nome })));
+        const first = (data || [])[0];
+        setActiveEventoInscricoes(first ? { id: first.id, name: first.nome } : null);
       }
       if (active) {
-        setEventosInscricoesLoading(false);
+        setActiveEventoInscricoesLoading(false);
       }
     };
-    loadEventosInscricoes();
+    loadEventoAtivo();
     return () => {
       active = false;
     };
@@ -119,9 +119,15 @@ const Inscritos = () => {
   useEffect(() => {
     let active = true;
     const loadLotes = async () => {
+      if (!activeEventoInscricoes?.id) {
+        if (active) setLotes([]);
+        return;
+      }
+
       const { data, error } = await supabase
         .from('lotes')
         .select('id, nome, inicio, fim, evento_id, eventos(nome)')
+        .eq('evento_id', activeEventoInscricoes.id)
         .order('inicio', { ascending: false });
       if (!error && active) {
         setLotes((data || []) as LoteRow[]);
@@ -131,7 +137,7 @@ const Inscritos = () => {
     return () => {
       active = false;
     };
-  }, []);
+  }, [activeEventoInscricoes?.id]);
 
   useEffect(() => {
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -163,7 +169,7 @@ const Inscritos = () => {
           .in('id', chunk);
 
         if (error) {
-          toast.error('Erro ao carregar inscrições');
+          toast.error('Erro ao carregar inscricoes');
           break;
         }
 
@@ -240,21 +246,37 @@ const Inscritos = () => {
     return '-';
   };
 
+  const getEventoIdForInscrito = (inscrito: Inscrito) => {
+    if (inscrito.loteId) {
+      return lotesById.get(inscrito.loteId)?.evento_id || null;
+    }
+    const participanteId = inscrito.numeroOriginal;
+    if (participanteId) {
+      return participantesLookup.get(participanteId)?.evento_id || null;
+    }
+    return null;
+  };
+
+  const inscritosEventoAtivo = useMemo(() => {
+    const activeEventId = activeEventoInscricoes?.id;
+    const lista = Array.from(inscritos.values());
+    if (!activeEventId) return lista;
+    return lista.filter((inscrito) => getEventoIdForInscrito(inscrito) === activeEventId);
+  }, [inscritos, activeEventoInscricoes?.id, lotesById, participantesLookup]);
+
   const inscritosFiltrados = useMemo(() => {
-    let lista = Array.from(inscritos.values());
-    
-    // Filtrar por busca
+    let lista = [...inscritosEventoAtivo];
+
     if (search) {
       const termo = search.toLowerCase();
-      lista = lista.filter(i => 
+      lista = lista.filter(i =>
         i.nome.toLowerCase().includes(termo) ||
         i.numero.toString().includes(termo) ||
         i.igreja.toLowerCase().includes(termo) ||
-        i.distrito.toLowerCase().includes(termo)
+        i.distrito.toLowerCase().includes(termo),
       );
     }
 
-    // Filtrar por idade
     if (ageFilter !== 'all') {
       lista = lista.filter((i) => {
         const idadeCalculada = i.dataNascimento
@@ -276,8 +298,7 @@ const Inscritos = () => {
         return lote?.id === selectedLote;
       });
     }
-    
-    // Ordenar
+
     lista.sort((a, b) => {
       switch (sortBy) {
         case 'numero-asc':
@@ -292,72 +313,98 @@ const Inscritos = () => {
           return 0;
       }
     });
-    
+
     return lista;
-  }, [inscritos, search, sortBy, ageFilter, selectedLote, lotesByEvento, lotesById, participantesLookup]);
+  }, [inscritosEventoAtivo, search, sortBy, ageFilter, selectedLote, lotesByEvento, lotesById, participantesLookup]);
 
   const handleSyncInscricoes = async () => {
     setSyncingInscricoes(true);
     try {
-      const eventId = selectedEventoInscricoes === 'all' ? undefined : selectedEventoInscricoes;
+      const eventId = activeEventoInscricoes?.id;
+      if (!eventId) {
+        toast.error('Nenhum evento ativo encontrado');
+        return;
+      }
       const result = await syncInscricoesToInscritos(eventId);
       if (result.success) {
         toast.success(`${result.count} inscritos sincronizados`);
-        reloadInscritos();
+        await reloadInscritos();
       } else {
         toast.error(`Erro: ${result.error}`);
       }
     } catch (error) {
-      toast.error('Erro ao sincronizar inscrições');
+      toast.error('Erro ao sincronizar inscricoes');
     } finally {
       setSyncingInscricoes(false);
     }
   };
 
-  const handleEventChange = (value: string) => {
-    setSelectedEventoInscricoes(value);
-  };
+  useEffect(() => {
+    if (!activeEventoInscricoes?.id || !user?.id) return;
+    let active = true;
+    const autoSync = async () => {
+      setSyncingInscricoes(true);
+      try {
+        const result = await syncInscricoesToInscritos(activeEventoInscricoes.id);
+        if (!active) return;
+        if (result.success) {
+          await reloadInscritos();
+          if (result.count > 0) {
+            toast.success(`${result.count} inscricoes do link sincronizadas`);
+          }
+        } else if (result.error) {
+          toast.error(`Erro ao sincronizar inscricoes: ${result.error}`);
+        }
+      } finally {
+        if (active) {
+          setSyncingInscricoes(false);
+        }
+      }
+    };
+    autoSync();
+    return () => {
+      active = false;
+    };
+  }, [activeEventoInscricoes?.id, user?.id, reloadInscritos]);
 
-  // Lista de igrejas únicas
   const igrejasUnicas = useMemo(() => {
     const igrejas = new Set<string>();
-    Array.from(inscritos.values()).forEach(i => {
-      if (i.igreja && i.igreja !== 'Não informado') {
+    inscritosEventoAtivo.forEach(i => {
+      if (i.igreja && i.igreja !== 'Nao informado') {
         igrejas.add(i.igreja);
       }
     });
     return Array.from(igrejas).sort();
-  }, [inscritos]);
+  }, [inscritosEventoAtivo]);
 
   const handleExportPDF = async (tipo: 'todos' | 'sorteados' | 'nao-sorteados', igreja?: string) => {
-    let lista = Array.from(inscritos.values());
-    
-    // Filtrar por igreja se especificado
+    let lista = [...inscritosEventoAtivo];
+
     if (igreja) {
       lista = lista.filter(i => i.igreja === igreja);
     }
-    
+
     const titulo = igreja ? `Inscritos - ${igreja}` : 'Lista Completa de Inscritos';
     const pdfBranding = eventoNome
       ? { eventName: eventoNome, logoUrl: '/icon.png' }
       : undefined;
-    
+
     switch (tipo) {
       case 'todos':
         await generateInscritosPDF(lista, titulo, { sorteados: sorteadosSet }, pdfBranding);
         toast.success(`PDF gerado com sucesso! ${igreja ? `(${lista.length} de ${igreja})` : ''}`);
         break;
       case 'sorteados':
-        await generateInscritosPDF(lista, igreja ? `Sorteados - ${igreja}` : 'Inscritos Sorteados', { 
-          sorteados: sorteadosSet, 
-          apenasSorteados: true 
+        await generateInscritosPDF(lista, igreja ? `Sorteados - ${igreja}` : 'Inscritos Sorteados', {
+          sorteados: sorteadosSet,
+          apenasSorteados: true,
         }, pdfBranding);
         toast.success('PDF de sorteados gerado!');
         break;
       case 'nao-sorteados':
-        await generateInscritosPDF(lista, igreja ? `Pendentes - ${igreja}` : 'Inscritos Pendentes de Sorteio', { 
-          sorteados: sorteadosSet, 
-          apenasNaoSorteados: true 
+        await generateInscritosPDF(lista, igreja ? `Pendentes - ${igreja}` : 'Inscritos Pendentes de Sorteio', {
+          sorteados: sorteadosSet,
+          apenasNaoSorteados: true,
         }, pdfBranding);
         toast.success('PDF de pendentes gerado!');
         break;
@@ -376,7 +423,7 @@ const Inscritos = () => {
 
   const handleSaveEdit = async () => {
     if (!editingInscrito) return;
-    
+
     setSaving(true);
     try {
       const updated: Inscrito = {
@@ -384,16 +431,15 @@ const Inscritos = () => {
         nome: editForm.nome.trim().toUpperCase(),
         dataNascimento: editForm.dataNascimento,
         idade: calcularIdade(editForm.dataNascimento),
-        igreja: editForm.igreja.trim() || 'Não informado',
-        distrito: editForm.distrito.trim() || 'Não informado',
+        igreja: editForm.igreja.trim() || 'Nao informado',
+        distrito: editForm.distrito.trim() || 'Nao informado',
       };
-      
+
       await saveInscrito(updated);
       toast.success('Inscrito atualizado!');
       setEditingInscrito(null);
-      reloadInscritos();
     } catch (error) {
-      toast.error('Erro ao salvar');
+      toast.error(error instanceof Error ? `Erro ao salvar: ${error.message}` : 'Erro ao salvar');
     } finally {
       setSaving(false);
     }
@@ -401,11 +447,10 @@ const Inscritos = () => {
 
   const handleDelete = async (inscrito: Inscrito) => {
     try {
-      await deleteInscrito(inscrito.numero);
+      await deleteInscrito(inscrito);
       toast.success(`${inscrito.nome} foi removido`);
-      reloadInscritos();
     } catch (error) {
-      toast.error('Erro ao excluir inscrito');
+      toast.error(error instanceof Error ? `Erro ao excluir: ${error.message}` : 'Erro ao excluir inscrito');
     }
   };
 
@@ -424,113 +469,111 @@ const Inscritos = () => {
 
   return (
     <MainLayout>
-        <div className="space-y-8">
-        {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
-            <h1 className="text-display-sm text-foreground flex items-center gap-3">
-              <Users className="h-8 w-8 text-primary" />
-              Lista de Inscritos
-            </h1>
-            <p className="text-muted-foreground mt-1">
-              {inscritos.size} inscritos carregados
-            </p>
-          </div>
-          
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Evento para sincronizar:</span>
-              <Select value={selectedEventoInscricoes} onValueChange={handleEventChange}>
-                <SelectTrigger className="w-[220px]" disabled={eventosInscricoesLoading}>
-                  <SelectValue placeholder={eventosInscricoesLoading ? 'Carregando...' : 'Todos'} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
-                  {eventosInscricoes.map((evento) => (
-                    <SelectItem key={evento.id} value={evento.id}>{evento.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="gap-2">
-                  <FileDown className="h-4 w-4" />
-                  Exportar PDF
-                  <ChevronDown className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="max-h-80 overflow-y-auto">
-                <DropdownMenuItem onClick={() => handleExportPDF('todos')}>
-                  Todos os inscritos
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleExportPDF('sorteados')}>
-                  ✅ Apenas Sorteados
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleExportPDF('nao-sorteados')}>
-                  ⏳ Pendentes de Sorteio
-                </DropdownMenuItem>
-                
-                {igrejasUnicas.length > 0 && (
-                  <>
-                    <div className="my-1 border-t border-border" />
-                    <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
-                      Por Igreja
-                    </div>
-                    {igrejasUnicas.map((igreja) => (
-                      <DropdownMenuItem key={igreja} onClick={() => handleExportPDF('todos', igreja)}>
-                        {igreja}
-                      </DropdownMenuItem>
-                    ))}
-                  </>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-            
-            <Button
-              variant="outline"
-              onClick={handleSyncInscricoes}
-              disabled={syncingInscricoes}
-              className="gap-2"
-            >
-              <RefreshCw className={`h-4 w-4 ${syncingInscricoes ? 'animate-spin' : ''}`} />
-              {syncingInscricoes ? 'Atualizando...' : 'Atualizar inscritos'}
-            </Button>
-            <AddInscritoForm onSuccess={reloadInscritos} />
-          </div>
-        </div>
-
-        {/* Search and Sort */}
+      <div className="space-y-6">
         <Card className="glass">
-          <CardContent className="p-4">
-            <div className="flex flex-col sm:flex-row gap-3">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <CardContent className="space-y-5 p-6">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="min-w-0 space-y-2">
+                <p className="card-eyebrow">Inscricoes</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="font-display text-[1.2rem] font-extrabold tracking-[-0.01em] text-foreground">
+                    Lista de Inscritos
+                  </h1>
+                  <span className="tag-pill pill-accent">
+                    {inscritosEventoAtivo.length} cadastrados
+                  </span>
+                </div>
+                <p className="card-desc">
+                  Gerencie inscricoes, sincronize dados e exporte relatorios sem alterar regras existentes.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="sm" className="gap-2">
+                      <FileDown className="h-4 w-4" />
+                      Exportar PDF
+                      <ChevronDown className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="max-h-80 overflow-y-auto">
+                    <DropdownMenuItem onClick={() => handleExportPDF('todos')}>
+                      Todos os inscritos
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleExportPDF('sorteados')}>
+                      Apenas Sorteados
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleExportPDF('nao-sorteados')}>
+                      Pendentes de Sorteio
+                    </DropdownMenuItem>
+                    {igrejasUnicas.length > 0 && (
+                      <>
+                        <div className="my-1 border-t border-border" />
+                        <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+                          Por Igreja
+                        </div>
+                        {igrejasUnicas.map((igreja) => (
+                          <DropdownMenuItem key={igreja} onClick={() => handleExportPDF('todos', igreja)}>
+                            {igreja}
+                          </DropdownMenuItem>
+                        ))}
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={handleSyncInscricoes}
+                  disabled={syncingInscricoes}
+                  className="gap-2"
+                >
+                  <RefreshCw className={`h-4 w-4 ${syncingInscricoes ? 'animate-spin' : ''}`} />
+                  {syncingInscricoes ? 'Atualizando...' : 'Atualizar'}
+                </Button>
+                <AddInscritoForm onSuccess={reloadInscritos} />
+              </div>
+            </div>
+
+            <hr className="divider" />
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="field">
+                <Label>Evento ativo (filtro fixo)</Label>
                 <Input
-                  placeholder="Buscar por nome, número, igreja ou distrito..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="pl-10"
+                  value={
+                    activeEventoInscricoesLoading
+                      ? 'Carregando evento ativo...'
+                      : (activeEventoInscricoes?.name || 'Nenhum evento ativo')
+                  }
+                  readOnly
                 />
               </div>
-              <div className="flex items-center gap-2">
-                <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
-                <Select value={sortBy} onValueChange={(value) => setSortBy(value as SortOption)}>
-                  <SelectTrigger className="w-[200px]">
-                    <SelectValue placeholder="Ordenar por..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="numero-asc">Nº (primeiro → último)</SelectItem>
-                    <SelectItem value="numero-desc">Nº (último → primeiro)</SelectItem>
-                    <SelectItem value="nome-asc">Nome (A → Z)</SelectItem>
-                    <SelectItem value="nome-desc">Nome (Z → A)</SelectItem>
-                  </SelectContent>
-                </Select>
+
+              <div className="field">
+                <Label>Ordenacao</Label>
+                <div className="relative">
+                  <ArrowUpDown className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Select value={sortBy} onValueChange={(value) => setSortBy(value as SortOption)}>
+                    <SelectTrigger className="pl-10">
+                      <SelectValue placeholder="Ordenar por..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="numero-asc">Nº (primeiro -&gt; ultimo)</SelectItem>
+                      <SelectItem value="numero-desc">Nº (ultimo -&gt; primeiro)</SelectItem>
+                      <SelectItem value="nome-asc">Nome (A -&gt; Z)</SelectItem>
+                      <SelectItem value="nome-desc">Nome (Z -&gt; A)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Label className="text-xs text-muted-foreground">Lote</Label>
+
+              <div className="field">
+                <Label>Lote</Label>
                 <Select value={selectedLote} onValueChange={setSelectedLote}>
-                  <SelectTrigger className="w-[220px]">
+                  <SelectTrigger>
                     <SelectValue placeholder="Todos os lotes" />
                   </SelectTrigger>
                   <SelectContent>
@@ -549,10 +592,11 @@ const Inscritos = () => {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="flex items-center gap-2">
-                <Label className="text-xs text-muted-foreground">Idade</Label>
+
+              <div className="field">
+                <Label>Idade</Label>
                 <Select value={ageFilter} onValueChange={(value) => setAgeFilter(value as AgeFilter)}>
-                  <SelectTrigger className="w-[180px]">
+                  <SelectTrigger>
                     <SelectValue placeholder="Todas as idades" />
                   </SelectTrigger>
                   <SelectContent>
@@ -563,129 +607,140 @@ const Inscritos = () => {
                 </Select>
               </div>
             </div>
-          </CardContent>
-        </Card>
 
-        {/* Table */}
-        <Card className="glass">
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-20">Foto</TableHead>
-                    <TableHead className="w-20">Nº</TableHead>
-                    <TableHead>Nome</TableHead>
-                    <TableHead className="w-28">Pagamento</TableHead>
-                    <TableHead className="w-20">Idade</TableHead>
-                    <TableHead>Igreja</TableHead>
-                    <TableHead>Distrito</TableHead>
-                    <TableHead>Lote</TableHead>
-                    <TableHead className="w-16">Ações</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {inscritosFiltrados.map((inscrito) => (
-                    <TableRow key={inscrito.numero} className={inscrito.isManual ? 'bg-accent/20' : ''}>
-                      <TableCell>
-                        <img
-                          src={inscrito.fotoUrl || DEFAULT_PHOTO}
-                          alt={inscrito.nome}
-                          className="h-12 w-12 rounded-full object-cover border-2 border-border"
-                          onError={(e) => {
-                            e.currentTarget.src = DEFAULT_PHOTO;
-                          }}
-                        />
-                      </TableCell>
-                      <TableCell className="font-mono font-bold">{inscrito.numero}</TableCell>
-                      <TableCell className="font-medium">
-                        {inscrito.nome}
-                        {inscrito.isManual && (
-                          <Badge variant="outline" className="ml-2 text-xs">Manual</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {(() => {
-                          const status = getValidStatus(inscrito.statusPagamento);
-                          const info = statusLabels[status];
-                          return (
-                            <Badge variant={info.variant} className="text-xs">
-                              {info.label}
-                            </Badge>
-                          );
-                        })()}
-                      </TableCell>
-                      <TableCell>{inscrito.idade}</TableCell>
-                      <TableCell>{inscrito.igreja}</TableCell>
-                      <TableCell>{inscrito.distrito}</TableCell>
-                      <TableCell>{getLoteLabel(inscrito)}</TableCell>
-                      <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8">
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => handleEditClick(inscrito)}>
-                              <Pencil className="h-4 w-4 mr-2" />
-                              Editar
-                            </DropdownMenuItem>
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <DropdownMenuItem 
-                                  className="text-destructive focus:text-destructive"
-                                  onSelect={(e) => e.preventDefault()}
-                                >
-                                  <Trash2 className="h-4 w-4 mr-2" />
-                                  Excluir
-                                </DropdownMenuItem>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>Excluir inscrito?</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    Tem certeza que deseja excluir {inscrito.nome}? Esta ação não pode ser desfeita.
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                                  <AlertDialogAction onClick={() => handleDelete(inscrito)}>
-                                    Excluir
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-            
-            {inscritosFiltrados.length === 0 && (
-              <div className="p-8 text-center text-muted-foreground">
-                Nenhum inscrito encontrado
+            <div className="field">
+              <Label>Buscar inscrito</Label>
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Buscar por nome, numero, igreja ou distrito..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-10"
+                />
               </div>
-            )}
+            </div>
           </CardContent>
         </Card>
 
-        <p className="text-sm text-muted-foreground text-center">
-          Exibindo {inscritosFiltrados.length} de {inscritos.size} inscritos
-        </p>
+        <Card>
+          <CardContent className="space-y-4 p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Users className="h-5 w-5 text-primary" />
+                <h2 className="font-display text-[1.2rem] font-extrabold tracking-[-0.01em] text-foreground">
+                  Inscritos
+                </h2>
+                <span className="tag-pill pill-accent">{inscritosFiltrados.length} listados</span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Exibindo {inscritosFiltrados.length} de {inscritosEventoAtivo.length} inscritos do evento ativo
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-[0.7rem]">
+              {inscritosFiltrados.length === 0 && (
+                <div className="alert alert-err show">
+                  Nenhum inscrito encontrado com os filtros atuais.
+                </div>
+              )}
+
+              {inscritosFiltrados.map((inscrito) => {
+                const info = getStatusInfo(inscrito.statusPagamento);
+                const sorteado = sorteadosSet.has(inscrito.numero);
+
+                return (
+                  <article key={inscrito.numero} className="list-card">
+                    <div className="flex min-w-0 flex-1 items-start gap-3">
+                      <img
+                        src={inscrito.fotoUrl || DEFAULT_PHOTO}
+                        alt={inscrito.nome}
+                        className="h-11 w-11 rounded-[10px] border border-border object-cover"
+                        onError={(e) => {
+                          e.currentTarget.src = DEFAULT_PHOTO;
+                        }}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="item-title truncate">{inscrito.nome}</p>
+                        <p className="item-meta truncate">
+                          Nº {inscrito.numero} • {inscrito.igreja} • {inscrito.distrito}
+                        </p>
+                        <p className="item-meta truncate">
+                          Lote: {getLoteLabel(inscrito)} • Idade: {inscrito.idade ?? '-'}
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          <Badge variant={info.variant} className="text-[0.68rem]">
+                            {info.label}
+                          </Badge>
+                          <span className={`tag-pill ${sorteado ? 'pill-success' : 'pill-warn'}`}>
+                            {sorteado ? 'Sorteado' : 'Pendente'}
+                          </span>
+                          {inscrito.isManual && (
+                            <Badge variant="outline" className="text-[0.68rem]">
+                              Manual
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <div className="text-right">
+                        <p className="total-label">Inscrito</p>
+                        <p className="item-value">#{inscrito.numero}</p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          className="btn-icon view"
+                          onClick={() => handleEditClick(inscrito)}
+                          title="Editar inscrito"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </button>
+
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <button type="button" className="btn-icon" title="Excluir inscrito">
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Excluir inscrito?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Tem certeza que deseja excluir {inscrito.nome}? Esta acao nao pode ser desfeita.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={() => handleDelete(inscrito)}
+                                className="border border-destructive/35 bg-destructive/10 text-destructive hover:bg-destructive/20"
+                              >
+                                Excluir
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* Modal de Edição */}
       <Dialog open={!!editingInscrito} onOpenChange={(open) => !open && setEditingInscrito(null)}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Editar Inscrito #{editingInscrito?.numero}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="space-y-2">
+            <div className="field">
               <Label htmlFor="edit-nome">Nome Completo</Label>
               <Input
                 id="edit-nome"
@@ -693,7 +748,7 @@ const Inscritos = () => {
                 onChange={(e) => setEditForm(prev => ({ ...prev, nome: e.target.value }))}
               />
             </div>
-            <div className="space-y-2">
+            <div className="field">
               <Label htmlFor="edit-nascimento">Data de Nascimento</Label>
               <Input
                 id="edit-nascimento"
@@ -702,7 +757,7 @@ const Inscritos = () => {
                 onChange={(e) => setEditForm(prev => ({ ...prev, dataNascimento: e.target.value }))}
               />
             </div>
-            <div className="space-y-2">
+            <div className="field">
               <Label htmlFor="edit-igreja">Igreja</Label>
               <Input
                 id="edit-igreja"
@@ -710,7 +765,7 @@ const Inscritos = () => {
                 onChange={(e) => setEditForm(prev => ({ ...prev, igreja: e.target.value }))}
               />
             </div>
-            <div className="space-y-2">
+            <div className="field">
               <Label htmlFor="edit-distrito">Distrito</Label>
               <Input
                 id="edit-distrito"
@@ -723,7 +778,7 @@ const Inscritos = () => {
             <Button variant="outline" onClick={() => setEditingInscrito(null)}>
               Cancelar
             </Button>
-            <Button onClick={handleSaveEdit} disabled={saving || !editForm.nome || !editForm.dataNascimento}>
+            <Button onClick={handleSaveEdit} disabled={saving || !editForm.nome.trim()}>
               {saving ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />

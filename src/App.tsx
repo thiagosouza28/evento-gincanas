@@ -22,6 +22,7 @@ import Premiacao from "./pages/Premiacao";
 import PublicoPremiacao from "./pages/PublicoPremiacao";
 import Relatorio from "./pages/Relatorio";
 import InscricaoPublica from "./pages/InscricaoPublica";
+import InscricoesAdmin from "./pages/InscricoesAdmin";
 import EventosAdmin from "./pages/EventosAdmin";
 import DistritosAdmin from "./pages/DistritosAdmin";
 import IgrejasAdmin from "./pages/IgrejasAdmin";
@@ -68,7 +69,8 @@ const App = () => (
             <Route path="/igrejas" element={<ProtectedRoute><IgrejasAdmin /></ProtectedRoute>} />
             <Route path="/igrejas-inscritas" element={<ProtectedRoute><IgrejasInscritasAdmin /></ProtectedRoute>} />
             <Route path="/lotes" element={<ProtectedRoute><LotesAdmin /></ProtectedRoute>} />
-            <Route path="/inscricoes" element={<Navigate to="/inscritos" replace />} />
+            <Route path="/inscricoes" element={<ProtectedRoute><InscricoesAdmin /></ProtectedRoute>} />
+            <Route path="/inscricoes-admin" element={<Navigate to="/inscricoes" replace />} />
             <Route path="/relatorios-eventos" element={<ProtectedRoute><RelatoriosAdmin /></ProtectedRoute>} />
             <Route path="/configuracoes" element={<ProtectedRoute><Configuracoes /></ProtectedRoute>} />
             

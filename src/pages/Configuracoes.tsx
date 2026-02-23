@@ -305,27 +305,54 @@ const Configuracoes = () => {
               </div>
               <div className="space-y-2">
                 <Label>Status para sincronizar</Label>
-                <div className="flex flex-wrap gap-4">
-                  <label className="flex items-center gap-2 text-sm">
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <label
+                    className={`check-card ${syncStatuses.includes('PAID') ? 'active' : ''}`}
+                    onClick={(event) => {
+                      if ((event.target as HTMLElement).closest('button')) return;
+                      toggleStatus('PAID');
+                    }}
+                  >
                     <Checkbox
                       checked={syncStatuses.includes('PAID')}
                       onCheckedChange={() => toggleStatus('PAID')}
                     />
-                    Pagos
+                    <div className="chk-body">
+                      <div className="chk-label">Pagos</div>
+                      <div className="chk-desc">Sincroniza inscrições aprovadas</div>
+                    </div>
                   </label>
-                  <label className="flex items-center gap-2 text-sm">
+                  <label
+                    className={`check-card ${syncStatuses.includes('PENDING') ? 'active' : ''}`}
+                    onClick={(event) => {
+                      if ((event.target as HTMLElement).closest('button')) return;
+                      toggleStatus('PENDING');
+                    }}
+                  >
                     <Checkbox
                       checked={syncStatuses.includes('PENDING')}
                       onCheckedChange={() => toggleStatus('PENDING')}
                     />
-                    Pendentes
+                    <div className="chk-body">
+                      <div className="chk-label">Pendentes</div>
+                      <div className="chk-desc">Inclui pagamentos em análise</div>
+                    </div>
                   </label>
-                  <label className="flex items-center gap-2 text-sm">
+                  <label
+                    className={`check-card ${syncStatuses.includes('CANCELLED') ? 'active' : ''}`}
+                    onClick={(event) => {
+                      if ((event.target as HTMLElement).closest('button')) return;
+                      toggleStatus('CANCELLED');
+                    }}
+                  >
                     <Checkbox
                       checked={syncStatuses.includes('CANCELLED')}
                       onCheckedChange={() => toggleStatus('CANCELLED')}
                     />
-                    Cancelados
+                    <div className="chk-body">
+                      <div className="chk-label">Cancelados</div>
+                      <div className="chk-desc">Inscrições canceladas no sistema</div>
+                    </div>
                   </label>
                 </div>
                 <p className="text-xs text-muted-foreground">

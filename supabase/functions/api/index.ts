@@ -17,6 +17,7 @@ import {
   checkStatusByProvider,
   createPaymentByProvider,
   normalizeProviderName,
+  refundByProvider,
 } from "./services/paymentProviders.ts";
 
 const corsHeaders = {
@@ -144,6 +145,230 @@ function normalizeText(raw: string) {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .trim();
+}
+
+function normalizeSlug(raw: string) {
+  return String(raw || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)+/g, "");
+}
+
+function normalizeSlugComparable(raw: string) {
+  return normalizeSlug(raw).replace(/[^a-z0-9]/g, "");
+}
+
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(value || "").trim(),
+  );
+}
+
+function isEventoAtivo(status: string | null | undefined) {
+  return String(status || "").trim().toLowerCase() === "ativo";
+}
+
+const DEFAULT_PAYMENT_METHOD = "pix";
+const SUPPORTED_PAYMENT_METHODS = ["pix", "manual"] as const;
+type SupportedPaymentMethod = (typeof SUPPORTED_PAYMENT_METHODS)[number];
+const DEFAULT_SEGURO_ADICIONAL_VALOR = 15;
+
+function normalizePaymentMethod(raw: string | null | undefined): SupportedPaymentMethod {
+  const normalized = String(raw || DEFAULT_PAYMENT_METHOD).trim().toLowerCase();
+  if (SUPPORTED_PAYMENT_METHODS.includes(normalized as SupportedPaymentMethod)) {
+    return normalized as SupportedPaymentMethod;
+  }
+  return DEFAULT_PAYMENT_METHOD;
+}
+
+function normalizeEventPaymentMethods(raw: unknown): SupportedPaymentMethod[] {
+  const list = Array.isArray(raw) ? raw : [];
+  const normalized = list
+    .map((item) => normalizePaymentMethod(String(item || "")))
+    .filter((item, index, source) => source.indexOf(item) === index);
+
+  return normalized.length > 0
+    ? normalized
+    : [DEFAULT_PAYMENT_METHOD];
+}
+
+function toBoolean(value: unknown) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value === 1;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    return normalized === "true" || normalized === "1" || normalized === "sim";
+  }
+  return false;
+}
+
+function normalizeSeguroValor(value: unknown) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return DEFAULT_SEGURO_ADICIONAL_VALOR;
+  }
+  return Number(parsed.toFixed(2));
+}
+
+function normalizeEventSeguroConfig(event: Record<string, any> | null | undefined) {
+  return {
+    seguroValor: normalizeSeguroValor(event?.seguro_valor),
+    seguroObrigatorio: toBoolean(event?.seguro_obrigatorio),
+  };
+}
+
+function normalizeProfileRole(rawRole: unknown) {
+  const value = String(rawRole || "")
+    .trim()
+    .toUpperCase();
+  if (value === "ADMIN") return "ADMIN";
+  return "USER";
+}
+
+function isAdminRole(rawRole: unknown) {
+  return normalizeProfileRole(rawRole) === "ADMIN";
+}
+
+async function resolveUserRole({
+  supabase,
+  user,
+}: {
+  supabase: any;
+  user: any;
+}) {
+  const userId = user?.id;
+  if (!userId) return "USER";
+
+  const metadataRole =
+    user?.app_metadata?.role ||
+    user?.user_metadata?.role ||
+    user?.app_metadata?.perfil ||
+    user?.user_metadata?.perfil;
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  return normalizeProfileRole(profile?.role || metadataRole);
+}
+
+function calculatePublicInscricaoTotal({
+  loteValor,
+  participantes,
+  seguroAdicionalValor = DEFAULT_SEGURO_ADICIONAL_VALOR,
+  seguroObrigatorio = false,
+}: {
+  loteValor: number;
+  participantes: Array<Record<string, any>>;
+  seguroAdicionalValor?: number;
+  seguroObrigatorio?: boolean;
+}) {
+  const base = Number(loteValor);
+  if (!Number.isFinite(base) || base <= 0) {
+    throw new Error("Valor do lote invalido.");
+  }
+
+  const seguroValor = normalizeSeguroValor(seguroAdicionalValor);
+  const segurosCount = participantes.reduce(
+    (acc, participante) =>
+      acc + (seguroObrigatorio || toBoolean(participante?.seguro) ? 1 : 0),
+    0,
+  );
+  const seguroTotal = segurosCount * seguroValor;
+  const total = base * participantes.length + seguroTotal;
+
+  if (!Number.isFinite(total) || total <= 0) {
+    throw new Error("Nao foi possivel calcular o valor total.");
+  }
+
+  return {
+    total,
+    segurosCount,
+    seguroTotal,
+    seguroAdicionalValor: seguroValor,
+  };
+}
+
+async function resolvePublicEventBySlugOrId(supabase: any, slugOrId: string) {
+  const safeSlugOrId = String(slugOrId || "").trim();
+  if (!safeSlugOrId) return null;
+
+  const normalizedInput = normalizeSlugComparable(safeSlugOrId);
+  const selectFields =
+    "id, nome, data_inicio, data_fim, local, status, slug, formas_pagamento, seguro_valor, seguro_obrigatorio";
+  const mapPublicEvent = (eventRow: Record<string, any>) => {
+    const seguroConfig = normalizeEventSeguroConfig(eventRow);
+    return {
+      ...eventRow,
+      formas_pagamento: normalizeEventPaymentMethods(eventRow.formas_pagamento),
+      seguro_valor: seguroConfig.seguroValor,
+      seguro_obrigatorio: seguroConfig.seguroObrigatorio,
+    };
+  };
+
+  const { data: eventDirect, error: eventDirectError } = await supabase
+    .from("eventos")
+    .select(selectFields)
+    .or(`slug.eq.${safeSlugOrId},slug.ilike.${safeSlugOrId}`)
+    .maybeSingle();
+
+  if (eventDirectError) {
+    throw eventDirectError;
+  }
+  if (eventDirect) {
+    return mapPublicEvent(eventDirect as Record<string, any>);
+  }
+
+  if (isUuid(safeSlugOrId)) {
+    const { data: eventById, error: eventByIdError } = await supabase
+      .from("eventos")
+      .select(selectFields)
+      .eq("id", safeSlugOrId)
+      .maybeSingle();
+
+    if (eventByIdError) {
+      throw eventByIdError;
+    }
+    if (eventById) {
+      return mapPublicEvent(eventById as Record<string, any>);
+    }
+  }
+
+  const { data: events, error: eventsError } = await supabase
+    .from("eventos")
+    .select(selectFields);
+
+  if (eventsError) {
+    throw eventsError;
+  }
+
+  const resolvedEvent = (events || []).find((item: any) => {
+    const itemSlugComparable = normalizeSlugComparable(item.slug || "");
+    const itemNameComparable = normalizeSlugComparable(item.nome || "");
+    return (
+      normalizedInput === itemSlugComparable || normalizedInput === itemNameComparable
+    );
+  }) as any;
+
+  if (resolvedEvent && !resolvedEvent.slug) {
+    const fallbackSlug =
+      normalizeSlug(resolvedEvent.nome || safeSlugOrId) || normalizeSlug(safeSlugOrId);
+    if (fallbackSlug) {
+      await supabase
+        .from("eventos")
+        .update({ slug: fallbackSlug })
+        .eq("id", resolvedEvent.id);
+      resolvedEvent.slug = fallbackSlug;
+    }
+  }
+
+  if (!resolvedEvent) return null;
+
+  return mapPublicEvent(resolvedEvent as Record<string, any>);
 }
 
 function sanitizeZapiMessage(message: string) {
@@ -686,10 +911,20 @@ function mapProviderStatusToInternal(status: string | null | undefined) {
 
   if (
     [
+      "refunded",
+      "refund",
+      "partially_refunded",
+      "charged_back",
+      "chargeback",
+    ].includes(normalized)
+  ) {
+    return "REFUNDED";
+  }
+
+  if (
+    [
       "cancelled",
       "canceled",
-      "refunded",
-      "chargeback",
       "rejected",
       "expired",
       "failed",
@@ -825,6 +1060,8 @@ async function createInscricaoWithPix({
   whatsapp,
   payerCpf,
   payerName,
+  seguroAdicionalValor,
+  seguroObrigatorio,
 }: {
   supabase: any;
   eventId: string;
@@ -832,16 +1069,21 @@ async function createInscricaoWithPix({
   whatsapp?: string | null;
   payerCpf?: string | null;
   payerName?: string | null;
+  seguroAdicionalValor?: number;
+  seguroObrigatorio?: boolean;
 }) {
   const lote = await findLoteVigente(supabase, eventId);
   if (!lote) {
     throw new Error("Nao ha lote vigente para este evento.");
   }
 
-  const total = Number(lote.valor) * participantes.length;
-  if (!Number.isFinite(total) || total <= 0) {
-    throw new Error("Valor do lote invalido.");
-  }
+  const totalData = calculatePublicInscricaoTotal({
+    loteValor: Number(lote.valor),
+    participantes,
+    seguroAdicionalValor,
+    seguroObrigatorio,
+  });
+  const total = totalData.total;
 
   const { data: inscricao, error: inscricaoError } = await supabase
     .from("inscricoes")
@@ -911,34 +1153,63 @@ async function createInscricaoWithPix({
   const qrcode = paymentResult.copyAndPaste || "";
   const qrcodeBase64 = paymentResult.qrCodeBase64 || "";
 
-  await supabase.from("pagamentos").insert({
-    inscricao_id: inscricao.id,
-    user_id: paymentContext.ownerId,
-    integration_id: paymentContext.integrationId,
-    provider: paymentContext.provider,
-    provider_payment_id: paymentResult.providerPaymentId,
-    status: internalStatus,
-    copiaecola: qrcode || null,
-    qrcode: qrcodeBase64 || null,
-    expires_at: paymentResult.expiresAt || null,
-    paid_at: internalStatus === "PAID" ? new Date().toISOString() : null,
-  });
+  const { data: pagamentoCriado, error: pagamentoInsertError } = await supabase
+    .from("pagamentos")
+    .insert({
+      inscricao_id: inscricao.id,
+      user_id: paymentContext.ownerId,
+      integration_id: paymentContext.integrationId,
+      provider: paymentContext.provider,
+      provider_payment_id: paymentResult.providerPaymentId,
+      transaction_id: paymentResult.providerPaymentId,
+      payment_method: "pix",
+      status: internalStatus === "REFUNDED" ? "CANCELLED" : internalStatus,
+      copiaecola: qrcode || null,
+      qrcode: qrcodeBase64 || null,
+      expires_at: paymentResult.expiresAt || null,
+      paid_at: internalStatus === "PAID" ? new Date().toISOString() : null,
+      confirmed_at: internalStatus === "PAID" ? new Date().toISOString() : null,
+      raw_status: paymentResult.raw || null,
+    })
+    .select(
+      "id, inscricao_id, status, paid_at, confirmed_at, provider_payment_id, transaction_id",
+    )
+    .single();
 
-  if (internalStatus === "PAID") {
+  if (pagamentoInsertError) {
+    throw new Error(`Erro ao registrar pagamento: ${pagamentoInsertError.message}`);
+  }
+
+  if (internalStatus === "PAID" && pagamentoCriado) {
+    await syncInscricaoAsConfirmed({
+      supabase,
+      pagamento: {
+        ...pagamentoCriado,
+        inscricoes: { whatsapp: whatsapp || null },
+      },
+      providerPaymentId: paymentResult.providerPaymentId,
+      providerStatusRaw: paymentResult.raw || null,
+    });
+  } else if (internalStatus === "REFUNDED") {
     await supabase
       .from("inscricoes")
-      .update({ status: "PAID" })
+      .update({ status: "CANCELLED", cancelled_at: new Date().toISOString() })
       .eq("id", inscricao.id);
   }
 
   return {
     inscricao_id: inscricao.id,
     total,
+    payment_method: "pix",
     lote: {
       id: lote.id,
       nome: lote.nome,
       valor: lote.valor,
     },
+    seguro_total: totalData.seguroTotal,
+    seguro_quantidade: totalData.segurosCount,
+    seguro_valor: totalData.seguroAdicionalValor,
+    seguro_obrigatorio: Boolean(seguroObrigatorio),
     payment_provider: paymentContext.provider,
     pix: {
       copiaecola: qrcode || null,
@@ -949,11 +1220,111 @@ async function createInscricaoWithPix({
   };
 }
 
+async function createInscricaoManual({
+  supabase,
+  eventId,
+  participantes,
+  whatsapp,
+  seguroAdicionalValor,
+  seguroObrigatorio,
+}: {
+  supabase: any;
+  eventId: string;
+  participantes: Array<Record<string, any>>;
+  whatsapp?: string | null;
+  seguroAdicionalValor?: number;
+  seguroObrigatorio?: boolean;
+}) {
+  const lote = await findLoteVigente(supabase, eventId);
+  if (!lote) {
+    throw new Error("Nao ha lote vigente para este evento.");
+  }
+
+  const totalData = calculatePublicInscricaoTotal({
+    loteValor: Number(lote.valor),
+    participantes,
+    seguroAdicionalValor,
+    seguroObrigatorio,
+  });
+  const total = totalData.total;
+
+  const { data: inscricao, error: inscricaoError } = await supabase
+    .from("inscricoes")
+    .insert({
+      evento_id: eventId,
+      whatsapp: whatsapp || null,
+      total,
+      status: "PENDING",
+    })
+    .select("*")
+    .single();
+
+  if (inscricaoError || !inscricao) {
+    throw new Error("Erro ao registrar inscricao.");
+  }
+
+  const participantesPayload = [];
+  for (const participante of participantes) {
+    const distritoId =
+      participante.distritoId ||
+      (participante.distrito
+        ? await findDistritoId(supabase, participante.distrito)
+        : null);
+    const igrejaId =
+      participante.igrejaId ||
+      (participante.igreja ? await findIgrejaId(supabase, participante.igreja) : null);
+
+    participantesPayload.push({
+      inscricao_id: inscricao.id,
+      evento_id: eventId,
+      nome: participante.nome,
+      cpf: participante.cpf,
+      nascimento: participante.nascimento || null,
+      genero: participante.genero || null,
+      distrito_id: distritoId,
+      igreja_id: igrejaId,
+      telefone: participante.telefone || null,
+    });
+  }
+
+  const { data: participantesCreated, error: participantesError } = await supabase
+    .from("participantes")
+    .insert(participantesPayload)
+    .select("id, nome, nascimento, igreja_id, distrito_id");
+
+  if (participantesError) {
+    throw new Error("Erro ao registrar participantes.");
+  }
+
+  await appendInscritosFromParticipantes({
+    supabase,
+    participantes: participantesCreated || [],
+    status: "PENDING",
+  });
+
+  return {
+    inscricao_id: inscricao.id,
+    total,
+    payment_method: "manual",
+    payment_provider: "manual",
+    lote: {
+      id: lote.id,
+      nome: lote.nome,
+      valor: lote.valor,
+    },
+    seguro_total: totalData.seguroTotal,
+    seguro_quantidade: totalData.segurosCount,
+    seguro_valor: totalData.seguroAdicionalValor,
+    seguro_obrigatorio: Boolean(seguroObrigatorio),
+    pix: null,
+  };
+}
+
 async function handlePublicEvent(req: Request) {
   const supabase = getSupabaseAdmin();
   const pathname = new URL(req.url).pathname;
   const match = pathname.match(/\/public\/event\/([^\/\?]+)/);
-  const slug = match?.[1];
+  const slug = match?.[1] ? decodeURIComponent(match[1]) : "";
   if (!slug) {
     return new Response(JSON.stringify({ error: "Evento nao informado" }), {
       status: 400,
@@ -961,48 +1332,7 @@ async function handlePublicEvent(req: Request) {
     });
   }
 
-  const normalizedSlug = slug
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]/g, "");
-
-  const { data: event } = await supabase
-    .from("eventos")
-    .select("id, nome, data_inicio, data_fim, local, status, slug")
-    .or(`slug.eq.${slug},slug.ilike.${slug},id.eq.${slug}`)
-    .maybeSingle();
-
-  let resolvedEvent = event;
-
-  if (!resolvedEvent) {
-    const { data: events } = await supabase
-      .from("eventos")
-      .select("id, nome, data_inicio, data_fim, local, status, slug");
-
-    resolvedEvent = (events || []).find((item: any) => {
-      const itemSlug = (item.slug || "")
-        .toLowerCase()
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/[^a-z0-9]/g, "");
-      const nameSlug = (item.nome || "")
-        .toLowerCase()
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/(^-|-$)+/g, "")
-        .replace(/[^a-z0-9]/g, "");
-      return normalizedSlug === itemSlug || normalizedSlug === nameSlug;
-    }) as any;
-
-    if (resolvedEvent && !resolvedEvent.slug) {
-      await supabase
-        .from("eventos")
-        .update({ slug })
-        .eq("id", resolvedEvent.id);
-    }
-  }
+  const resolvedEvent = await resolvePublicEventBySlugOrId(supabase, slug);
 
   if (!resolvedEvent) {
     return new Response(JSON.stringify({ error: "Evento nao encontrado" }), {
@@ -1114,6 +1444,7 @@ async function handlePublicInscricao(req: Request) {
     eventSlug: z.string().min(1),
     responsavelCpf: z.string().min(11),
     whatsapp: z.string().optional(),
+    paymentMethod: z.string().optional(),
     igrejaId: z.string().optional().nullable(),
     distritoId: z.string().optional().nullable(),
     participantes: z
@@ -1128,6 +1459,7 @@ async function handlePublicInscricao(req: Request) {
           distrito: z.string().optional().nullable(),
           igrejaId: z.string().optional().nullable(),
           igreja: z.string().optional().nullable(),
+          seguro: z.boolean().optional(),
         }),
       )
       .min(1),
@@ -1146,8 +1478,7 @@ async function handlePublicInscricao(req: Request) {
     participantes,
     whatsapp,
     responsavelCpf,
-    igrejaId,
-    distritoId,
+    paymentMethod,
   } = parsed.data;
   const responsavelCpfNormalized = normalizeCpf(responsavelCpf);
   if (!isValidCpf(responsavelCpfNormalized)) {
@@ -1157,17 +1488,29 @@ async function handlePublicInscricao(req: Request) {
     });
   }
 
-  const { data: event } = await supabase
-    .from("eventos")
-    .select("id, status, nome")
-    .or(`slug.eq.${eventSlug},id.eq.${eventSlug}`)
-    .maybeSingle();
+  const event = await resolvePublicEventBySlugOrId(supabase, eventSlug);
 
-  if (!event || event.status !== "ativo") {
+  if (!event || !isEventoAtivo(event.status)) {
     return new Response(JSON.stringify({ error: "Evento inativo ou inexistente" }), {
       status: 404,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
+  }
+  const { seguroValor, seguroObrigatorio } = normalizeEventSeguroConfig(event);
+
+  const allowedPaymentMethods = normalizeEventPaymentMethods(event.formas_pagamento);
+  const selectedPaymentMethod = normalizePaymentMethod(paymentMethod);
+  if (!allowedPaymentMethods.includes(selectedPaymentMethod)) {
+    return new Response(
+      JSON.stringify({
+        error: "Forma de pagamento nao permitida para este evento.",
+        allowedPaymentMethods,
+      }),
+      {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
   }
 
   const cpfs = participantes.map((p) => normalizeCpf(p.cpf));
@@ -1193,33 +1536,21 @@ async function handlePublicInscricao(req: Request) {
     .eq("diretor_jovem_cpf", responsavelCpfNormalized)
     .maybeSingle();
 
-  let finalIgrejaId = igrejaResponsavel?.id || igrejaId || null;
-  let finalDistritoId =
-    igrejaResponsavel?.distrito_id || distritoId || null;
-
-  if (!finalIgrejaId) {
-    return new Response(JSON.stringify({ error: "Igreja nao informada" }), {
-      status: 400,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
-
-  if (!igrejaResponsavel) {
-    const { data: igrejaData } = await supabase
-      .from("igrejas")
-      .select("id, distrito_id")
-      .eq("id", finalIgrejaId)
-      .maybeSingle();
-    if (!igrejaData?.id) {
-      return new Response(JSON.stringify({ error: "Igreja invalida" }), {
+  if (!igrejaResponsavel?.id) {
+    return new Response(
+      JSON.stringify({
+        error:
+          "CPF do responsavel nao vinculado a igreja. Cadastre o Diretor Jovem na igreja antes de inscrever.",
+      }),
+      {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-    if (!finalDistritoId) {
-      finalDistritoId = igrejaData?.distrito_id || null;
-    }
+      },
+    );
   }
+
+  const finalIgrejaId = igrejaResponsavel.id;
+  let finalDistritoId = igrejaResponsavel.distrito_id || null;
 
   if (!finalDistritoId) {
     const { data: igrejaData } = await supabase
@@ -1231,7 +1562,7 @@ async function handlePublicInscricao(req: Request) {
   }
 
   if (!finalDistritoId) {
-    return new Response(JSON.stringify({ error: "Distrito nao informado" }), {
+    return new Response(JSON.stringify({ error: "Distrito nao informado para a igreja do responsavel" }), {
       status: 400,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
@@ -1263,6 +1594,7 @@ async function handlePublicInscricao(req: Request) {
     distrito: p.distrito || null,
     igrejaId: finalIgrejaId,
     igreja: p.igreja || null,
+    seguro: seguroObrigatorio ? true : Boolean(p.seguro),
   }));
 
   const whatsappNormalized = whatsapp ? normalizePhoneBR(whatsapp) : null;
@@ -1277,35 +1609,51 @@ async function handlePublicInscricao(req: Request) {
   }
 
   try {
-    const result = await createInscricaoWithPix({
-      supabase,
-      eventId: event.id,
-      participantes: mappedParticipants,
-      whatsapp: whatsappNormalized,
-      payerCpf: responsavelCpfNormalized,
-      payerName: mappedParticipants[0]?.nome || "Responsavel",
-    });
+    const result =
+      selectedPaymentMethod === "manual"
+        ? await createInscricaoManual({
+            supabase,
+            eventId: event.id,
+            participantes: mappedParticipants,
+            whatsapp: whatsappNormalized,
+            seguroAdicionalValor: seguroValor,
+            seguroObrigatorio,
+          })
+        : await createInscricaoWithPix({
+            supabase,
+            eventId: event.id,
+            participantes: mappedParticipants,
+            whatsapp: whatsappNormalized,
+            payerCpf: responsavelCpfNormalized,
+            payerName: mappedParticipants[0]?.nome || "Responsavel",
+            seguroAdicionalValor: seguroValor,
+            seguroObrigatorio,
+          });
 
     if (whatsappNormalized) {
       try {
         await sendText(
           whatsappNormalized,
-          `Inscricao registrada no evento ${event.nome}.\nValor total: R$ ${Number(result.total).toFixed(2).replace(".", ",")}\nPague via PIX abaixo:`,
+          result.payment_method === "manual"
+            ? `Inscricao registrada no evento ${event.nome}.\nValor total: R$ ${Number(result.total).toFixed(2).replace(".", ",")}\nForma de pagamento: MANUAL.\nEntre em contato com a organizacao para concluir o pagamento.`
+            : `Inscricao registrada no evento ${event.nome}.\nValor total: R$ ${Number(result.total).toFixed(2).replace(".", ",")}\nPague via PIX abaixo:`,
         );
-        if (result.pix?.qrcode_base64) {
+        if (result.payment_method !== "manual" && result.pix?.qrcode_base64) {
           await sendImage(
             whatsappNormalized,
             `data:image/png;base64,${result.pix.qrcode_base64}`,
           );
         }
-        if (result.pix?.copiaecola) {
+        if (result.payment_method !== "manual" && result.pix?.copiaecola) {
           await sendText(
             whatsappNormalized,
             `Copia e Cola PIX:\n${result.pix.copiaecola}`,
           );
         }
-        await new Promise((resolve) => setTimeout(resolve, 600));
-        await sendPixButtons(whatsappNormalized);
+        if (result.payment_method !== "manual") {
+          await new Promise((resolve) => setTimeout(resolve, 600));
+          await sendPixButtons(whatsappNormalized);
+        }
       } catch (error) {
         logger.warn("Falha ao enviar PIX via WhatsApp", {
           error: error instanceof Error ? error.message : String(error),
@@ -1362,11 +1710,27 @@ async function finalizeInscricao({
     return;
   }
 
-  const total = Number(lote.valor) * participantes.length;
-  if (!Number.isFinite(total) || total <= 0) {
+  const { data: eventSeguroConfig } = await supabase
+    .from("eventos")
+    .select("seguro_valor, seguro_obrigatorio")
+    .eq("id", eventId)
+    .maybeSingle();
+  const { seguroValor, seguroObrigatorio } = normalizeEventSeguroConfig(
+    eventSeguroConfig as Record<string, any> | null,
+  );
+
+  let total = 0;
+  try {
+    total = calculatePublicInscricaoTotal({
+      loteValor: Number(lote.valor),
+      participantes,
+      seguroAdicionalValor: seguroValor,
+      seguroObrigatorio,
+    }).total;
+  } catch (_error) {
     await sendText(
       phone,
-      "NÃ£o foi possÃ­vel calcular o valor do lote. Verifique o valor cadastrado.",
+      "NÃ£o foi possÃ­vel calcular o valor total da inscriÃ§Ã£o.",
     );
     await resetSession(supabase, sessionId);
     return;
@@ -1454,23 +1818,49 @@ async function finalizeInscricao({
   const qrcode = paymentResult.copyAndPaste || "";
   const qrcodeBase64 = paymentResult.qrCodeBase64 || "";
 
-  await supabase.from("pagamentos").insert({
-    inscricao_id: inscricao.id,
-    user_id: paymentContext.ownerId,
-    integration_id: paymentContext.integrationId,
-    provider: paymentContext.provider,
-    provider_payment_id: paymentResult.providerPaymentId,
-    status: internalStatus,
-    copiaecola: qrcode || null,
-    qrcode: qrcodeBase64 || null,
-    expires_at: paymentResult.expiresAt || null,
-    paid_at: internalStatus === "PAID" ? new Date().toISOString() : null,
-  });
+  const { data: pagamentoCriado, error: pagamentoInsertError } = await supabase
+    .from("pagamentos")
+    .insert({
+      inscricao_id: inscricao.id,
+      user_id: paymentContext.ownerId,
+      integration_id: paymentContext.integrationId,
+      provider: paymentContext.provider,
+      provider_payment_id: paymentResult.providerPaymentId,
+      transaction_id: paymentResult.providerPaymentId,
+      payment_method: "pix",
+      status: internalStatus === "REFUNDED" ? "CANCELLED" : internalStatus,
+      copiaecola: qrcode || null,
+      qrcode: qrcodeBase64 || null,
+      expires_at: paymentResult.expiresAt || null,
+      paid_at: internalStatus === "PAID" ? new Date().toISOString() : null,
+      confirmed_at: internalStatus === "PAID" ? new Date().toISOString() : null,
+      raw_status: paymentResult.raw || null,
+    })
+    .select(
+      "id, inscricao_id, status, paid_at, confirmed_at, provider_payment_id, transaction_id",
+    )
+    .single();
 
-  if (internalStatus === "PAID") {
+  if (pagamentoInsertError) {
+    logger.error("Erro ao registrar pagamento", {
+      error: pagamentoInsertError.message,
+    });
+  }
+
+  if (internalStatus === "PAID" && pagamentoCriado) {
+    await syncInscricaoAsConfirmed({
+      supabase,
+      pagamento: {
+        ...pagamentoCriado,
+        inscricoes: { whatsapp: phone },
+      },
+      providerPaymentId: paymentResult.providerPaymentId,
+      providerStatusRaw: paymentResult.raw || null,
+    });
+  } else if (internalStatus === "REFUNDED") {
     await supabase
       .from("inscricoes")
-      .update({ status: "PAID" })
+      .update({ status: "CANCELLED", cancelled_at: new Date().toISOString() })
       .eq("id", inscricao.id);
   }
 
@@ -2157,51 +2547,481 @@ async function handleWhatsappWebhook(req: Request) {
   });
 }
 
+function formatDateTimeBR(value?: string | null) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleString("pt-BR");
+}
+
+function formatCurrencyBR(value: number) {
+  return Number(value || 0).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
+}
+
+async function writePaymentAuditLog({
+  supabase,
+  pagamentoId,
+  inscricaoId,
+  action,
+  actorUserId = null,
+  details = {},
+  skipIfExists = false,
+}: {
+  supabase: any;
+  pagamentoId: string;
+  inscricaoId: string;
+  action: "PAYMENT_CONFIRMED" | "RECEIPT_GENERATED" | "PAYMENT_REFUNDED";
+  actorUserId?: string | null;
+  details?: Record<string, unknown>;
+  skipIfExists?: boolean;
+}) {
+  if (skipIfExists) {
+    const { data: existing } = await supabase
+      .from("payment_audit_logs")
+      .select("id")
+      .eq("pagamento_id", pagamentoId)
+      .eq("action", action)
+      .limit(1);
+
+    if ((existing || []).length > 0) return;
+  }
+
+  await supabase.from("payment_audit_logs").insert({
+    pagamento_id: pagamentoId,
+    inscricao_id: inscricaoId,
+    action,
+    actor_user_id: actorUserId,
+    details,
+  });
+}
+
+async function fetchPagamentoContextById(supabase: any, pagamentoId: string) {
+  const { data, error } = await supabase
+    .from("pagamentos")
+    .select(
+      "id, inscricao_id, provider, provider_payment_id, status, payment_method, paid_at, confirmed_at, transaction_id, comprovante_path, comprovante_url, user_id, integration_id, inscricoes(id, evento_id, whatsapp, total, status, created_at, eventos(nome), participantes(id, nome, cpf, igrejas(nome), distritos(nome)))",
+    )
+    .eq("id", pagamentoId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Erro ao buscar pagamento: ${error.message}`);
+  }
+
+  return data || null;
+}
+
+function resolvePaymentMethodLabel(pagamento: any) {
+  const method = String(
+    pagamento?.payment_method ||
+      (pagamento?.provider === "manual" ? "manual" : "pix"),
+  )
+    .trim()
+    .toLowerCase();
+
+  if (method === "manual") return "Manual";
+  if (pagamento?.provider === "mercadopago") return "PIX (Mercado Pago)";
+  return method.toUpperCase();
+}
+
 async function generateReceiptPdf({
   eventoNome,
-  inscritos,
+  participantes,
   pagamentoId,
+  transactionId,
+  orderId,
+  paymentMethod,
+  valorPago,
+  paidAt,
 }: {
   eventoNome: string;
-  inscritos: string[];
+  participantes: Array<{
+    nome: string;
+    cpf: string;
+    igreja?: string | null;
+    distrito?: string | null;
+  }>;
   pagamentoId: string;
+  transactionId: string;
+  orderId: string;
+  paymentMethod: string;
+  valorPago: number;
+  paidAt?: string | null;
 }) {
   const pdfDoc = await PDFDocument.create();
   let page = pdfDoc.addPage();
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  let height = page.getSize().height;
+  const titleFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const drawColor = {
+    text: rgb(0.12, 0.12, 0.14),
+    muted: rgb(0.43, 0.46, 0.5),
+    line: rgb(0.86, 0.88, 0.92),
+    headerBg: rgb(0.13, 0.15, 0.2),
+    headerText: rgb(0.96, 0.97, 0.98),
+    cardBg: rgb(0.95, 0.96, 0.98),
+    accent: rgb(0.22, 0.48, 0.95),
+  };
 
-  page.drawText("Comprovante de Pagamento", {
-    x: 50,
-    y: height - 60,
-    size: 18,
-    font,
-    color: rgb(0.1, 0.1, 0.1),
+  const margin = 42;
+  const pageWidth = page.getSize().width;
+  let pageHeight = page.getSize().height;
+  const contentWidth = pageWidth - margin * 2;
+  let y = pageHeight - margin;
+
+  const normalizeInline = (value: string, max = 46) => {
+    const safe = String(value || "-").replace(/\s+/g, " ").trim();
+    if (!safe) return "-";
+    if (safe.length <= max) return safe;
+    return `${safe.slice(0, Math.max(0, max - 1))}…`;
+  };
+
+  const write = (
+    text: string,
+    x: number,
+    textY: number,
+    size = 10,
+    bold = false,
+    color = drawColor.text,
+  ) => {
+    page.drawText(String(text || ""), {
+      x,
+      y: textY,
+      size,
+      font: bold ? titleFont : font,
+      color,
+    });
+  };
+
+  const startNewPage = () => {
+    page = pdfDoc.addPage();
+    pageHeight = page.getSize().height;
+    y = pageHeight - margin;
+  };
+
+  page.drawRectangle({
+    x: margin,
+    y: y - 56,
+    width: contentWidth,
+    height: 56,
+    color: drawColor.headerBg,
+    borderColor: drawColor.headerBg,
+    borderWidth: 1,
   });
-  page.drawText(`Evento: ${eventoNome}`, { x: 50, y: height - 90, size: 12, font });
-  page.drawText(`Pagamento: ${pagamentoId}`, {
-    x: 50,
-    y: height - 110,
-    size: 11,
-    font,
+  write("COMPROVANTE DE INSCRICAO", margin + 16, y - 22, 14, true, drawColor.headerText);
+  write("Pagamento confirmado", margin + 16, y - 39, 9, false, rgb(0.8, 0.84, 0.9));
+  y -= 76;
+
+  write(eventoNome || "Evento", margin, y, 15, true, drawColor.text);
+  y -= 10;
+  page.drawLine({
+    start: { x: margin, y },
+    end: { x: margin + contentWidth, y },
+    thickness: 1,
+    color: drawColor.line,
+  });
+  y -= 16;
+
+  page.drawRectangle({
+    x: margin,
+    y: y - 94,
+    width: contentWidth,
+    height: 94,
+    color: drawColor.cardBg,
+    borderColor: drawColor.line,
+    borderWidth: 1,
   });
 
-  let y = height - 150;
-  page.drawText("Participantes:", { x: 50, y, size: 12, font });
-  y -= 20;
-  for (const nome of inscritos) {
-    page.drawText(`- ${nome}`, { x: 60, y, size: 10, font });
-    y -= 16;
-    if (y < 50) {
-      page = pdfDoc.addPage();
-      height = page.getSize().height;
-      y = height - 60;
-      page.drawText("Participantes (continua):", { x: 50, y, size: 12, font });
-      y -= 20;
+  const leftX = margin + 14;
+  const rightX = margin + contentWidth / 2 + 10;
+  write("Pedido", leftX, y - 16, 8, true, drawColor.muted);
+  write(normalizeInline(orderId, 34), leftX, y - 30, 11, true);
+  write("Pagamento", rightX, y - 16, 8, true, drawColor.muted);
+  write(normalizeInline(pagamentoId, 34), rightX, y - 30, 10, false);
+  write("Transacao", leftX, y - 50, 8, true, drawColor.muted);
+  write(normalizeInline(transactionId, 34), leftX, y - 64, 10, false);
+  write("Forma", rightX, y - 50, 8, true, drawColor.muted);
+  write(normalizeInline(paymentMethod, 34), rightX, y - 64, 10, false);
+  write("Valor pago", leftX, y - 84, 8, true, drawColor.muted);
+  write(formatCurrencyBR(valorPago), leftX, y - 98, 12, true, drawColor.accent);
+  write("Data/Hora", rightX, y - 84, 8, true, drawColor.muted);
+  write(formatDateTimeBR(paidAt), rightX, y - 98, 10, false);
+  y -= 116;
+
+  write("Participantes", margin, y, 11, true);
+  y -= 10;
+  page.drawLine({
+    start: { x: margin, y },
+    end: { x: margin + contentWidth, y },
+    thickness: 1,
+    color: drawColor.line,
+  });
+  y -= 16;
+
+  const drawParticipantsHeader = () => {
+    page.drawRectangle({
+      x: margin,
+      y: y - 20,
+      width: contentWidth,
+      height: 20,
+      color: rgb(0.94, 0.95, 0.97),
+      borderColor: drawColor.line,
+      borderWidth: 1,
+    });
+    write("#", margin + 8, y - 13, 9, true, drawColor.muted);
+    write("Participante", margin + 28, y - 13, 9, true, drawColor.muted);
+    write("CPF", margin + 222, y - 13, 9, true, drawColor.muted);
+    write("Igreja", margin + 316, y - 13, 9, true, drawColor.muted);
+    write("Distrito", margin + 436, y - 13, 9, true, drawColor.muted);
+    y -= 21;
+  };
+
+  const drawParticipantRow = (
+    index: number,
+    participante: {
+      nome: string;
+      cpf: string;
+      igreja?: string | null;
+      distrito?: string | null;
+    },
+  ) => {
+    page.drawRectangle({
+      x: margin,
+      y: y - 18,
+      width: contentWidth,
+      height: 18,
+      borderColor: drawColor.line,
+      borderWidth: 1,
+      color: index % 2 === 0 ? rgb(1, 1, 1) : rgb(0.985, 0.988, 0.995),
+    });
+
+    write(String(index + 1), margin + 8, y - 12, 9, false);
+    write(normalizeInline(participante.nome || "-", 28), margin + 28, y - 12, 9, false);
+    write(normalizeInline(participante.cpf || "-", 16), margin + 222, y - 12, 9, false);
+    write(normalizeInline(participante.igreja || "-", 18), margin + 316, y - 12, 9, false);
+    write(normalizeInline(participante.distrito || "-", 14), margin + 436, y - 12, 9, false);
+    y -= 18;
+  };
+
+  drawParticipantsHeader();
+  participantes.forEach((participante, index) => {
+    if (y < margin + 44) {
+      startNewPage();
+      write(eventoNome || "Evento", margin, y, 11, true);
+      y -= 12;
+      drawParticipantsHeader();
     }
+    drawParticipantRow(index, participante);
+  });
+
+  if (participantes.length === 0) {
+    page.drawRectangle({
+      x: margin,
+      y: y - 20,
+      width: contentWidth,
+      height: 20,
+      borderColor: drawColor.line,
+      borderWidth: 1,
+      color: rgb(0.99, 0.99, 0.995),
+    });
+    write("Nenhum participante vinculado.", margin + 8, y - 13, 9, false, drawColor.muted);
+    y -= 20;
   }
 
+  y -= 14;
+  write(`Documento gerado em ${formatDateTimeBR(new Date().toISOString())}`, margin, y, 8, false, drawColor.muted);
+  write("Valido como comprovante de pagamento da inscricao.", margin, y - 12, 8, false, drawColor.muted);
+
   return await pdfDoc.save();
+}
+
+function buildReceiptFilePath(inscricaoId: string, transactionId: string) {
+  const safeTx = String(transactionId || "pagamento")
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]+/g, "_");
+  return `${inscricaoId}/comprovante-${safeTx}.pdf`;
+}
+
+async function getOrCreateReceiptForPayment({
+  supabase,
+  pagamentoId,
+  forceRegenerate = false,
+  actorUserId = null,
+}: {
+  supabase: any;
+  pagamentoId: string;
+  forceRegenerate?: boolean;
+  actorUserId?: string | null;
+}) {
+  const pagamento = await fetchPagamentoContextById(supabase, pagamentoId);
+  if (!pagamento) {
+    throw new Error("Pagamento nao encontrado.");
+  }
+
+  if (pagamento.status !== "PAID" && pagamento.status !== "REFUNDED") {
+    throw new Error("Comprovante disponivel apenas para pagamentos aprovados.");
+  }
+
+  if (
+    !forceRegenerate &&
+    pagamento.comprovante_path &&
+    pagamento.comprovante_url
+  ) {
+    return {
+      pagamento,
+      comprovantePath: pagamento.comprovante_path,
+      comprovanteUrl: pagamento.comprovante_url,
+      generated: false,
+    };
+  }
+
+  const inscricao = pagamento.inscricoes || {};
+  const participantes = Array.isArray(inscricao.participantes)
+    ? inscricao.participantes
+    : [];
+  const pdfBytes = await generateReceiptPdf({
+    eventoNome: inscricao.eventos?.nome || "Evento",
+    participantes: participantes.map((p: any) => ({
+      nome: p.nome,
+      cpf: p.cpf,
+      igreja: p.igrejas?.nome || null,
+      distrito: p.distritos?.nome || null,
+    })),
+    pagamentoId: pagamento.id,
+    transactionId:
+      pagamento.transaction_id || pagamento.provider_payment_id || pagamento.id,
+    orderId: inscricao.id || pagamento.inscricao_id,
+    paymentMethod: resolvePaymentMethodLabel(pagamento),
+    valorPago: Number(inscricao.total || 0),
+    paidAt: pagamento.paid_at || pagamento.confirmed_at,
+  });
+
+  const bucketName = "comprovantes";
+  await ensureStorageBucket(supabase, bucketName);
+
+  const filePath = buildReceiptFilePath(
+    pagamento.inscricao_id,
+    pagamento.transaction_id || pagamento.provider_payment_id || pagamento.id,
+  );
+
+  const { error: uploadError } = await supabase.storage
+    .from(bucketName)
+    .upload(filePath, pdfBytes, {
+      contentType: "application/pdf",
+      upsert: true,
+    });
+
+  if (uploadError) {
+    throw new Error(`Erro ao salvar comprovante: ${uploadError.message}`);
+  }
+
+  const { data: publicUrl } = supabase.storage
+    .from(bucketName)
+    .getPublicUrl(filePath);
+
+  const comprovanteUrl = publicUrl?.publicUrl || null;
+
+  await supabase
+    .from("pagamentos")
+    .update({
+      comprovante_path: filePath,
+      comprovante_url: comprovanteUrl,
+    })
+    .eq("id", pagamento.id);
+
+  await writePaymentAuditLog({
+    supabase,
+    pagamentoId: pagamento.id,
+    inscricaoId: pagamento.inscricao_id,
+    action: "RECEIPT_GENERATED",
+    actorUserId,
+    details: {
+      generated: true,
+      path: filePath,
+    },
+  });
+
+  return {
+    pagamento,
+    comprovantePath: filePath,
+    comprovanteUrl,
+    generated: true,
+  };
+}
+
+async function syncInscricaoAsConfirmed({
+  supabase,
+  pagamento,
+  providerPaymentId,
+  providerStatusRaw = null,
+}: {
+  supabase: any;
+  pagamento: any;
+  providerPaymentId: string;
+  providerStatusRaw?: any;
+}) {
+  const nowIso = new Date().toISOString();
+  const alreadyPaid = pagamento.status === "PAID";
+
+  await supabase
+    .from("pagamentos")
+    .update({
+      status: "PAID",
+      paid_at: pagamento.paid_at || nowIso,
+      confirmed_at: pagamento.confirmed_at || nowIso,
+      transaction_id:
+        pagamento.transaction_id || String(providerPaymentId || pagamento.provider_payment_id),
+      raw_status: providerStatusRaw,
+    })
+    .eq("id", pagamento.id);
+
+  await supabase
+    .from("inscricoes")
+    .update({
+      status: "CONFIRMED",
+      confirmed_at: nowIso,
+      cancelled_at: null,
+    })
+    .eq("id", pagamento.inscricao_id);
+
+  const { data: participantes } = await supabase
+    .from("participantes")
+    .select("id")
+    .eq("inscricao_id", pagamento.inscricao_id);
+
+  await updateInscritosStatusByParticipantes({
+    supabase,
+    participantIds: (participantes || []).map((p: any) => p.id),
+    status: "CONFIRMED",
+  });
+
+  await writePaymentAuditLog({
+    supabase,
+    pagamentoId: pagamento.id,
+    inscricaoId: pagamento.inscricao_id,
+    action: "PAYMENT_CONFIRMED",
+    details: {
+      provider_status: providerStatusRaw?.status || null,
+      provider_payment_id: String(providerPaymentId || pagamento.provider_payment_id),
+    },
+    skipIfExists: alreadyPaid,
+  });
+
+  const receipt = await getOrCreateReceiptForPayment({
+    supabase,
+    pagamentoId: pagamento.id,
+    forceRegenerate: false,
+  });
+
+  if (pagamento.inscricoes?.whatsapp) {
+    const phone = pagamento.inscricoes.whatsapp;
+    await sendText(phone, "Pagamento aprovado! Sua inscricao foi confirmada.");
+    if (receipt.comprovanteUrl) {
+      await sendText(phone, `Comprovante: ${receipt.comprovanteUrl}`);
+    }
+  }
 }
 
 async function ensureStorageBucket(supabase: any, bucketName: string) {
@@ -2384,74 +3204,120 @@ async function handlePaymentWebhook(req: Request) {
 
   const internalStatus = mapProviderStatusToInternal(providerStatus.status);
 
-  if (pagamento.status === "PAID" && internalStatus === "PAID") {
-    return new Response(JSON.stringify({ ok: true }), {
+  if (pagamento.status === "REFUNDED") {
+    return new Response(JSON.stringify({ ok: true, ignored: "already_refunded" }), {
       status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
-  await supabase
-    .from("pagamentos")
-    .update({
-      status: internalStatus,
-      paid_at: internalStatus === "PAID" ? new Date().toISOString() : pagamento.paid_at,
-    })
-    .eq("id", pagamento.id);
+  if (pagamento.status === "PAID" && internalStatus === "PAID") {
+    await getOrCreateReceiptForPayment({
+      supabase,
+      pagamentoId: pagamento.id,
+      forceRegenerate: false,
+    }).catch((receiptError) => {
+      logger.warn("Falha ao garantir comprovante no webhook idempotente", {
+        pagamentoId: pagamento.id,
+        error: receiptError instanceof Error ? receiptError.message : String(receiptError),
+      });
+    });
+
+    return new Response(JSON.stringify({ ok: true, duplicate: true }), {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
 
   if (internalStatus === "PAID") {
+    await syncInscricaoAsConfirmed({
+      supabase,
+      pagamento,
+      providerPaymentId: String(paymentId),
+      providerStatusRaw: providerStatus.raw || null,
+    });
+  } else if (internalStatus === "REFUNDED") {
+    const nowIso = new Date().toISOString();
+
+    await supabase
+      .from("pagamentos")
+      .update({
+        status: "REFUNDED",
+        refunded_at: nowIso,
+        transaction_id:
+          pagamento.transaction_id || String(paymentId || pagamento.provider_payment_id),
+        raw_status: providerStatus.raw || null,
+      })
+      .eq("id", pagamento.id);
+
     await supabase
       .from("inscricoes")
-      .update({ status: "PAID" })
+      .update({
+        status: "CANCELLED",
+        cancelled_at: nowIso,
+      })
       .eq("id", pagamento.inscricao_id);
 
     const { data: participantes } = await supabase
       .from("participantes")
-      .select("id, nome")
+      .select("id")
       .eq("inscricao_id", pagamento.inscricao_id);
 
     await updateInscritosStatusByParticipantes({
       supabase,
       participantIds: (participantes || []).map((p: any) => p.id),
-      status: "PAID",
+      status: "CANCELLED",
     });
 
-    const { data: evento } = await supabase
-      .from("eventos")
-      .select("nome")
-      .eq("id", pagamento.inscricoes?.evento_id)
-      .maybeSingle();
-
-    const pdfBytes = await generateReceiptPdf({
-      eventoNome: evento?.nome || "Evento",
-      inscritos: (participantes || []).map((p: any) => p.nome),
-      pagamentoId: String(paymentId),
+    await writePaymentAuditLog({
+      supabase,
+      pagamentoId: pagamento.id,
+      inscricaoId: pagamento.inscricao_id,
+      action: "PAYMENT_REFUNDED",
+      details: {
+        source: "webhook",
+        provider_status: providerStatus.status || null,
+        provider_payment_id: String(paymentId),
+      },
+      skipIfExists: true,
     });
-
-    const bucketName = "comprovantes";
-    await ensureStorageBucket(supabase, bucketName);
-    const filePath = `${pagamento.inscricao_id}/comprovante-${paymentId}.pdf`;
-
-    await supabase.storage.from(bucketName).upload(filePath, pdfBytes, {
-      contentType: "application/pdf",
-      upsert: true,
-    });
-    const { data: publicUrl } = supabase.storage
-      .from(bucketName)
-      .getPublicUrl(filePath);
-
-    if (pagamento.inscricoes?.whatsapp) {
-      const phone = pagamento.inscricoes.whatsapp;
-      await sendText(phone, "Pagamento aprovado! Sua inscricao foi confirmada.");
-      if (publicUrl?.publicUrl) {
-        await sendText(phone, `Comprovante: ${publicUrl.publicUrl}`);
-      }
-    }
   } else if (internalStatus === "CANCELLED") {
+    const nowIso = new Date().toISOString();
+
+    await supabase
+      .from("pagamentos")
+      .update({
+        status: "CANCELLED",
+        raw_status: providerStatus.raw || null,
+      })
+      .eq("id", pagamento.id);
+
     await supabase
       .from("inscricoes")
-      .update({ status: "CANCELLED" })
+      .update({
+        status: "CANCELLED",
+        cancelled_at: nowIso,
+      })
       .eq("id", pagamento.inscricao_id);
+
+    const { data: participantes } = await supabase
+      .from("participantes")
+      .select("id")
+      .eq("inscricao_id", pagamento.inscricao_id);
+
+    await updateInscritosStatusByParticipantes({
+      supabase,
+      participantIds: (participantes || []).map((p: any) => p.id),
+      status: "CANCELLED",
+    });
+  } else {
+    await supabase
+      .from("pagamentos")
+      .update({
+        status: "PENDING",
+        raw_status: providerStatus.raw || null,
+      })
+      .eq("id", pagamento.id);
   }
 
   return new Response(JSON.stringify({ ok: true }), {
@@ -2459,6 +3325,443 @@ async function handlePaymentWebhook(req: Request) {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 }
+
+function isUserAllowedToManagePagamento({
+  pagamento,
+  userId,
+}: {
+  pagamento: any;
+  userId: string;
+}) {
+  if (!userId || !pagamento) return false;
+  const directOwner = pagamento.user_id;
+  const eventOwner = pagamento.inscricoes?.eventos?.owner_id;
+  return userId === directOwner || userId === eventOwner;
+}
+
+async function fetchPagamentoByInscricaoForAdmin({
+  supabase,
+  inscricaoId,
+}: {
+  supabase: any;
+  inscricaoId: string;
+}) {
+  const { data, error } = await supabase
+    .from("pagamentos")
+    .select(
+      "id, inscricao_id, provider, provider_payment_id, status, payment_method, paid_at, confirmed_at, refunded_at, refund_reason, transaction_id, comprovante_path, comprovante_url, user_id, integration_id, inscricoes(id, status, total, evento_id, eventos(nome, owner_id))",
+    )
+    .eq("inscricao_id", inscricaoId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Erro ao buscar pagamento da inscricao: ${error.message}`);
+  }
+
+  return data || null;
+}
+
+async function fetchPagamentoByIdForAdmin({
+  supabase,
+  pagamentoId,
+}: {
+  supabase: any;
+  pagamentoId: string;
+}) {
+  const { data, error } = await supabase
+    .from("pagamentos")
+    .select(
+      "id, inscricao_id, provider, provider_payment_id, status, payment_method, paid_at, confirmed_at, refunded_at, refund_reason, transaction_id, comprovante_path, comprovante_url, user_id, integration_id, inscricoes(id, status, total, evento_id, eventos(nome, owner_id))",
+    )
+    .eq("id", pagamentoId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Erro ao buscar pagamento: ${error.message}`);
+  }
+
+  return data || null;
+}
+
+async function handleAdminInscricaoStatus(req: Request) {
+  const pathname = new URL(req.url).pathname;
+  const match = pathname.match(/\/admin\/inscricoes\/([^\/\?]+)\/status/i);
+  const inscricaoId = match?.[1];
+  if (!inscricaoId) {
+    return new Response(JSON.stringify({ error: "Inscricao nao informada" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const supabase = getSupabaseAdmin();
+  const auth = await requireAuthenticatedUser({ req, supabase, corsHeaders });
+  if (auth.response) return auth.response;
+
+  const { data: inscricao, error: inscricaoError } = await supabase
+    .from("inscricoes")
+    .select("id, status, total, confirmed_at, cancelled_at, evento_id, eventos(nome, owner_id)")
+    .eq("id", inscricaoId)
+    .maybeSingle();
+
+  if (inscricaoError) {
+    return new Response(JSON.stringify({ error: inscricaoError.message }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  if (!inscricao) {
+    return new Response(JSON.stringify({ error: "Inscricao nao encontrada" }), {
+      status: 404,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  if (inscricao.eventos?.owner_id && inscricao.eventos.owner_id !== auth.user.id) {
+    return new Response(JSON.stringify({ error: "Sem permissao para esta inscricao" }), {
+      status: 403,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const pagamento = await fetchPagamentoByInscricaoForAdmin({ supabase, inscricaoId });
+
+  return new Response(
+    JSON.stringify({
+      inscricao: {
+        id: inscricao.id,
+        status: inscricao.status,
+        total: inscricao.total,
+        confirmed_at: inscricao.confirmed_at || null,
+        cancelled_at: inscricao.cancelled_at || null,
+      },
+      pagamento: pagamento
+        ? {
+            id: pagamento.id,
+            status: pagamento.status,
+            payment_method: pagamento.payment_method || "pix",
+            transaction_id: pagamento.transaction_id || pagamento.provider_payment_id || null,
+            paid_at: pagamento.paid_at || null,
+            confirmed_at: pagamento.confirmed_at || null,
+            refunded_at: pagamento.refunded_at || null,
+            refund_reason: pagamento.refund_reason || null,
+            comprovante_url: pagamento.comprovante_url || null,
+          }
+        : null,
+    }),
+    {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    },
+  );
+}
+
+async function handleAdminInscricaoComprovante(req: Request) {
+  const pathname = new URL(req.url).pathname;
+  const match = pathname.match(/\/admin\/inscricoes\/([^\/\?]+)\/comprovante/i);
+  const inscricaoId = match?.[1];
+  if (!inscricaoId) {
+    return new Response(JSON.stringify({ error: "Inscricao nao informada" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const supabase = getSupabaseAdmin();
+  const auth = await requireAuthenticatedUser({ req, supabase, corsHeaders });
+  if (auth.response) return auth.response;
+
+  const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
+  const forceRegenerate = toBoolean(body?.forceRegenerate);
+
+  const pagamento = await fetchPagamentoByInscricaoForAdmin({ supabase, inscricaoId });
+  if (!pagamento) {
+    return new Response(JSON.stringify({ error: "Pagamento nao encontrado para esta inscricao" }), {
+      status: 404,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  if (!isUserAllowedToManagePagamento({ pagamento, userId: auth.user.id })) {
+    return new Response(JSON.stringify({ error: "Sem permissao para gerar comprovante" }), {
+      status: 403,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  try {
+    const receipt = await getOrCreateReceiptForPayment({
+      supabase,
+      pagamentoId: pagamento.id,
+      forceRegenerate,
+      actorUserId: auth.user.id,
+    });
+
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        generated: receipt.generated,
+        comprovante_url: receipt.comprovanteUrl,
+        comprovante_path: receipt.comprovantePath,
+        pagamento_id: pagamento.id,
+        inscricao_id: pagamento.inscricao_id,
+      }),
+      {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
+  } catch (error) {
+    return new Response(
+      JSON.stringify({
+        error: error instanceof Error ? error.message : "Erro ao gerar comprovante",
+      }),
+      {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
+  }
+}
+
+async function handleAdminPagamentoRefund(req: Request) {
+  const pathname = new URL(req.url).pathname;
+  const match = pathname.match(/\/admin\/pagamentos\/([^\/\?]+)\/refund/i);
+  const pagamentoId = match?.[1];
+  if (!pagamentoId) {
+    return new Response(JSON.stringify({ error: "Pagamento nao informado" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const supabase = getSupabaseAdmin();
+  const auth = await requireAuthenticatedUser({ req, supabase, corsHeaders });
+  if (auth.response) return auth.response;
+
+  const role = await resolveUserRole({ supabase, user: auth.user });
+  if (!isAdminRole(role)) {
+    return new Response(JSON.stringify({ error: "Apenas ADMIN pode estornar pagamentos" }), {
+      status: 403,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const body = await req.json().catch(() => ({}));
+  const refundReason = String(body?.reason || "")
+    .trim()
+    .slice(0, 500);
+
+  if (!refundReason) {
+    return new Response(JSON.stringify({ error: "Motivo do estorno e obrigatorio" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const pagamento = await fetchPagamentoByIdForAdmin({ supabase, pagamentoId });
+  if (!pagamento) {
+    return new Response(JSON.stringify({ error: "Pagamento nao encontrado" }), {
+      status: 404,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  if (!isUserAllowedToManagePagamento({ pagamento, userId: auth.user.id })) {
+    return new Response(JSON.stringify({ error: "Sem permissao para estornar este pagamento" }), {
+      status: 403,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  if (pagamento.status === "REFUNDED") {
+    return new Response(JSON.stringify({ error: "Pagamento ja estornado" }), {
+      status: 409,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  if (pagamento.status !== "PAID") {
+    return new Response(JSON.stringify({ error: "Somente pagamentos pagos podem ser estornados" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  let credentials: any;
+  try {
+    const context = await resolvePaymentCredentialsForWebhook({
+      supabase,
+      pagamento,
+      provider: pagamento.provider,
+    });
+    credentials = context.credentials;
+  } catch (error) {
+    return new Response(
+      JSON.stringify({
+        error: error instanceof Error ? error.message : "Credenciais do pagamento invalidas",
+      }),
+      {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
+  }
+
+  let refundResult: any = null;
+  if (pagamento.provider !== "manual") {
+    try {
+      refundResult = await refundByProvider(pagamento.provider, {
+        providerPaymentId: String(pagamento.provider_payment_id),
+        credentials,
+      });
+    } catch (error) {
+      return new Response(
+        JSON.stringify({
+          error: error instanceof Error ? error.message : "Falha ao estornar no gateway",
+        }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+  }
+
+  const nowIso = new Date().toISOString();
+  const providerRefundId =
+    refundResult?.raw?.id ||
+    refundResult?.raw?.refund_id ||
+    refundResult?.raw?.data?.id ||
+    null;
+
+  await supabase
+    .from("pagamentos")
+    .update({
+      status: "REFUNDED",
+      refunded_at: nowIso,
+      refund_reason: refundReason,
+      refunded_by: auth.user.id,
+      provider_refund_id: providerRefundId,
+      raw_status: refundResult?.raw || null,
+    })
+    .eq("id", pagamento.id);
+
+  await supabase
+    .from("inscricoes")
+    .update({
+      status: "CANCELLED",
+      cancelled_at: nowIso,
+    })
+    .eq("id", pagamento.inscricao_id);
+
+  const { data: participantes } = await supabase
+    .from("participantes")
+    .select("id")
+    .eq("inscricao_id", pagamento.inscricao_id);
+
+  await updateInscritosStatusByParticipantes({
+    supabase,
+    participantIds: (participantes || []).map((p: any) => p.id),
+    status: "CANCELLED",
+  });
+
+  await writePaymentAuditLog({
+    supabase,
+    pagamentoId: pagamento.id,
+    inscricaoId: pagamento.inscricao_id,
+    action: "PAYMENT_REFUNDED",
+    actorUserId: auth.user.id,
+    details: {
+      reason: refundReason,
+      provider: pagamento.provider,
+      provider_refund_status: refundResult?.status || "manual",
+      provider_refund_id: providerRefundId,
+    },
+    skipIfExists: true,
+  });
+
+  return new Response(
+    JSON.stringify({
+      ok: true,
+      pagamento_id: pagamento.id,
+      inscricao_id: pagamento.inscricao_id,
+      status: "REFUNDED",
+      refunded_at: nowIso,
+      refund_reason: refundReason,
+    }),
+    {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    },
+  );
+}
+
+async function handlePublicInscricaoStatus(req: Request) {
+  const pathname = new URL(req.url).pathname;
+  const match = pathname.match(/\/public\/inscricoes\/([^\/\?]+)\/status/i);
+  const inscricaoId = match?.[1];
+  if (!inscricaoId) {
+    return new Response(JSON.stringify({ error: "Inscricao nao informada" }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const supabase = getSupabaseAdmin();
+  const { data: inscricao, error: inscricaoError } = await supabase
+    .from("inscricoes")
+    .select("id, status, total, confirmed_at, cancelled_at")
+    .eq("id", inscricaoId)
+    .maybeSingle();
+
+  if (inscricaoError) {
+    return new Response(JSON.stringify({ error: inscricaoError.message }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  if (!inscricao) {
+    return new Response(JSON.stringify({ error: "Inscricao nao encontrada" }), {
+      status: 404,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const pagamento = await fetchPagamentoByInscricaoForAdmin({ supabase, inscricaoId });
+  return new Response(
+    JSON.stringify({
+      inscricao: {
+        id: inscricao.id,
+        status: inscricao.status,
+        total: inscricao.total,
+        confirmed_at: inscricao.confirmed_at || null,
+        cancelled_at: inscricao.cancelled_at || null,
+      },
+      pagamento: pagamento
+        ? {
+            id: pagamento.id,
+            status: pagamento.status,
+            payment_method: pagamento.payment_method || "pix",
+            transaction_id: pagamento.transaction_id || pagamento.provider_payment_id || null,
+            paid_at: pagamento.paid_at || null,
+            confirmed_at: pagamento.confirmed_at || null,
+            refunded_at: pagamento.refunded_at || null,
+            comprovante_url: pagamento.comprovante_url || null,
+          }
+        : null,
+    }),
+    {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    },
+  );
+}
+
 async function handleReports(req: Request, routeParts: string[]) {
   const supabase = getSupabaseAdmin();
   const eventId = routeParts[4];
@@ -2480,13 +3783,16 @@ async function handleReports(req: Request, routeParts: string[]) {
     .select("status, total")
     .eq("evento_id", eventId);
 
+  const isPaidLikeStatus = (status: string | null | undefined) =>
+    ["PAID", "CONFIRMED"].includes(String(status || "").toUpperCase());
+
   const totalInscritos = inscricoes?.length || 0;
-  const totalPago = inscricoes?.filter((i: any) => i.status === "PAID").length || 0;
+  const totalPago = inscricoes?.filter((i: any) => isPaidLikeStatus(i.status)).length || 0;
   const totalPendente =
     inscricoes?.filter((i: any) => i.status === "PENDING").length || 0;
   const totalArrecadado =
     inscricoes
-      ?.filter((i: any) => i.status === "PAID")
+      ?.filter((i: any) => isPaidLikeStatus(i.status))
       .reduce((sum: number, item: any) => sum + Number(item.total || 0), 0) || 0;
 
   const porIgreja = new Map<string, { total: number; pago: number }>();
@@ -2500,7 +3806,7 @@ async function handleReports(req: Request, routeParts: string[]) {
     if (!porIgreja.has(igrejaNome)) porIgreja.set(igrejaNome, { total: 0, pago: 0 });
     const igrejaData = porIgreja.get(igrejaNome)!;
     igrejaData.total += 1;
-    if (status === "PAID") igrejaData.pago += 1;
+    if (isPaidLikeStatus(status)) igrejaData.pago += 1;
 
     porDistrito.set(distritoNome, (porDistrito.get(distritoNome) || 0) + 1);
   });
@@ -2690,6 +3996,22 @@ serve(async (req) => {
       return handleReports(req, parts);
     }
 
+    if (pathMatch("/admin/inscricoes/") && pathMatch("/status") && req.method === "GET") {
+      return handleAdminInscricaoStatus(req);
+    }
+
+    if (
+      pathMatch("/admin/inscricoes/") &&
+      pathMatch("/comprovante") &&
+      (req.method === "GET" || req.method === "POST")
+    ) {
+      return handleAdminInscricaoComprovante(req);
+    }
+
+    if (pathMatch("/admin/pagamentos/") && pathMatch("/refund") && req.method === "POST") {
+      return handleAdminPagamentoRefund(req);
+    }
+
     if (pathMatch("/public/event/") && req.method === "GET") {
       return handlePublicEvent(req);
     }
@@ -2700,6 +4022,10 @@ serve(async (req) => {
 
     if (pathMatch("/public/inscricoes") && req.method === "POST") {
       return handlePublicInscricao(req);
+    }
+
+    if (pathMatch("/public/inscricoes/") && pathMatch("/status") && req.method === "GET") {
+      return handlePublicInscricaoStatus(req);
     }
 
     return new Response(JSON.stringify({ error: "Not found" }), {

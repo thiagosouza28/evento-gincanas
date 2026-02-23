@@ -4,11 +4,68 @@ import type { Database } from './types';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const REST_TIMEOUT_MS = 6000;
+const REST_FAILURE_COOLDOWN_MS = 20000;
+const restFailureAt = new Map<string, number>();
+
+const nativeFetch: typeof fetch = (input, init) => globalThis.fetch(input, init);
+
+const supabaseFetch: typeof fetch = async (input, init) => {
+  const url = typeof input === 'string' ? input : input.toString();
+  const method = String(init?.method || 'GET').toUpperCase();
+  const isRestGet = method === 'GET' && url.includes('/rest/v1/');
+  const requestKey = `${method}:${url}`;
+
+  if (isRestGet) {
+    const lastFailure = restFailureAt.get(requestKey);
+    if (lastFailure && Date.now() - lastFailure < REST_FAILURE_COOLDOWN_MS) {
+      return new Response(
+        JSON.stringify({ message: 'upstream request timeout (cooldown)' }),
+        { status: 504, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+  }
+
+  const controller = new AbortController();
+  const timeoutMs = isRestGet ? REST_TIMEOUT_MS : REST_TIMEOUT_MS + 4000;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  const upstreamSignal = init?.signal;
+  const abortUpstream = () => controller.abort();
+  if (upstreamSignal) upstreamSignal.addEventListener('abort', abortUpstream, { once: true });
+
+  try {
+    const response = await nativeFetch(input, { ...init, signal: controller.signal });
+    if (isRestGet) {
+      if (response.status >= 500) {
+        restFailureAt.set(requestKey, Date.now());
+      } else {
+        restFailureAt.delete(requestKey);
+      }
+    }
+    return response;
+  } catch (error) {
+    if (isRestGet) {
+      restFailureAt.set(requestKey, Date.now());
+      return new Response(
+        JSON.stringify({ message: 'upstream request timeout' }),
+        { status: 504, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    if (upstreamSignal) upstreamSignal.removeEventListener('abort', abortUpstream);
+  }
+};
 
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
 export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+  global: {
+    fetch: supabaseFetch,
+  },
   auth: {
     storage: localStorage,
     persistSession: true,

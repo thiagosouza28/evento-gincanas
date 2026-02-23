@@ -18,11 +18,12 @@ import type { ApiConfig, SystemConfig } from '@/types';
 // Keep useDatabase for initialization checking
 export function useDatabase() {
   const { user, loading: authLoading } = useAuth();
+  const userId = user?.id || null;
   const [isReady, setIsReady] = useState(false);
   const [inscritosCount, setInscritosCount] = useState(0);
 
   const initializeDatabase = useCallback(async () => {
-    if (!user) {
+    if (!userId) {
       setIsReady(false);
       setInscritosCount(0);
       return;
@@ -32,16 +33,22 @@ export function useDatabase() {
       const { count, error } = await supabase
         .from('inscritos')
         .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id);
+        .eq('user_id', userId);
 
-      if (!error) {
+      if (error) {
+        console.error('Erro ao contar inscritos na inicializacao:', error);
+        setInscritosCount(0);
+      } else {
         setInscritosCount(count || 0);
       }
-      setIsReady(true);
     } catch (error) {
       console.error('Erro ao inicializar banco de dados:', error);
+      setInscritosCount(0);
+    } finally {
+      // Nao bloqueia o dashboard indefinidamente em caso de falha de contagem.
+      setIsReady(true);
     }
-  }, [user]);
+  }, [userId]);
 
   useEffect(() => {
     if (!authLoading) {

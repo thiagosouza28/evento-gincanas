@@ -222,10 +222,13 @@ export type Database = {
           created_at: string
           data_fim: string | null
           data_inicio: string | null
+          formas_pagamento: string[]
           id: string
           local: string | null
           nome: string
           owner_id: string
+          seguro_obrigatorio: boolean
+          seguro_valor: number
           slug: string | null
           status: string
           updated_at: string
@@ -234,10 +237,13 @@ export type Database = {
           created_at?: string
           data_fim?: string | null
           data_inicio?: string | null
+          formas_pagamento?: string[]
           id?: string
           local?: string | null
           nome: string
           owner_id: string
+          seguro_obrigatorio?: boolean
+          seguro_valor?: number
           slug?: string | null
           status?: string
           updated_at?: string
@@ -246,10 +252,13 @@ export type Database = {
           created_at?: string
           data_fim?: string | null
           data_inicio?: string | null
+          formas_pagamento?: string[]
           id?: string
           local?: string | null
           nome?: string
           owner_id?: string
+          seguro_obrigatorio?: boolean
+          seguro_valor?: number
           slug?: string | null
           status?: string
           updated_at?: string
@@ -311,6 +320,8 @@ export type Database = {
       }
       inscricoes: {
         Row: {
+          cancelled_at: string | null
+          confirmed_at: string | null
           created_at: string
           evento_id: string
           id: string
@@ -320,6 +331,8 @@ export type Database = {
           whatsapp: string | null
         }
         Insert: {
+          cancelled_at?: string | null
+          confirmed_at?: string | null
           created_at?: string
           evento_id: string
           id?: string
@@ -329,6 +342,8 @@ export type Database = {
           whatsapp?: string | null
         }
         Update: {
+          cancelled_at?: string | null
+          confirmed_at?: string | null
           created_at?: string
           evento_id?: string
           id?: string
@@ -436,46 +451,76 @@ export type Database = {
       pagamentos: {
         Row: {
           copiaecola: string | null
+          comprovante_path: string | null
+          comprovante_url: string | null
+          confirmed_at: string | null
           created_at: string
           expires_at: string | null
           id: string
           integration_id: string | null
           inscricao_id: string
           paid_at: string | null
+          payment_method: string
           provider: string
           provider_payment_id: string
+          provider_refund_id: string | null
           qrcode: string | null
+          raw_status: Json | null
+          refund_reason: string | null
+          refunded_at: string | null
+          refunded_by: string | null
           status: string
+          transaction_id: string | null
           updated_at: string
           user_id: string | null
         }
         Insert: {
           copiaecola?: string | null
+          comprovante_path?: string | null
+          comprovante_url?: string | null
+          confirmed_at?: string | null
           created_at?: string
           expires_at?: string | null
           id?: string
           integration_id?: string | null
           inscricao_id: string
           paid_at?: string | null
+          payment_method?: string
           provider: string
           provider_payment_id: string
+          provider_refund_id?: string | null
           qrcode?: string | null
+          raw_status?: Json | null
+          refund_reason?: string | null
+          refunded_at?: string | null
+          refunded_by?: string | null
           status?: string
+          transaction_id?: string | null
           updated_at?: string
           user_id?: string | null
         }
         Update: {
           copiaecola?: string | null
+          comprovante_path?: string | null
+          comprovante_url?: string | null
+          confirmed_at?: string | null
           created_at?: string
           expires_at?: string | null
           id?: string
           integration_id?: string | null
           inscricao_id?: string
           paid_at?: string | null
+          payment_method?: string
           provider?: string
           provider_payment_id?: string
+          provider_refund_id?: string | null
           qrcode?: string | null
+          raw_status?: Json | null
+          refund_reason?: string | null
+          refunded_at?: string | null
+          refunded_by?: string | null
           status?: string
+          transaction_id?: string | null
           updated_at?: string
           user_id?: string | null
         }
@@ -654,6 +699,7 @@ export type Database = {
           created_at: string
           id: string
           nome: string | null
+          role: string
           updated_at: string
           user_id: string
         }
@@ -662,6 +708,7 @@ export type Database = {
           created_at?: string
           id?: string
           nome?: string | null
+          role?: string
           updated_at?: string
           user_id: string
         }
@@ -670,6 +717,7 @@ export type Database = {
           created_at?: string
           id?: string
           nome?: string | null
+          role?: string
           updated_at?: string
           user_id?: string
         }

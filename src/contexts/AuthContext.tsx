@@ -1,15 +1,26 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const PROFILE_TIMEOUT_MS = 5000;
+const PROFILE_FAILURE_COOLDOWN_MS = 20000;
+const profileFailureAt = new Map<string, number>();
+const profileCache = new Map<string, Profile | null>();
+
+function inProfileCooldown(userId: string) {
+  const last = profileFailureAt.get(userId);
+  if (!last) return false;
+  return Date.now() - last < PROFILE_FAILURE_COOLDOWN_MS;
+}
 
 interface Profile {
   id: string;
   user_id: string;
   nome: string | null;
   avatar_url: string | null;
+  role?: string | null;
 }
 
 interface AuthContextType {
@@ -29,54 +40,125 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const lastProfileUserIdRef = useRef<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchProfile = async (userId: string) => {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('user_id', userId)
-      .maybeSingle();
-
-    if (error) {
-      console.error('Erro ao buscar perfil:', error);
-      return null;
+    if (inProfileCooldown(userId)) {
+      return profileCache.get(userId) ?? null;
     }
 
-    return data;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), PROFILE_TIMEOUT_MS);
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, user_id, nome, avatar_url, role')
+        .eq('user_id', userId)
+        .maybeSingle()
+        .abortSignal(controller.signal);
+
+      if (error) {
+        profileFailureAt.set(userId, Date.now());
+        console.error('Erro ao buscar perfil:', error);
+        return profileCache.get(userId) ?? null;
+      }
+
+      profileFailureAt.delete(userId);
+      profileCache.set(userId, data || null);
+      return data;
+    } catch (error) {
+      profileFailureAt.set(userId, Date.now());
+      console.error('Erro ao buscar perfil:', error);
+      return profileCache.get(userId) ?? null;
+    } finally {
+      clearTimeout(timer);
+    }
   };
 
   useEffect(() => {
+    let active = true;
+
+    const safeSetLoading = (value: boolean) => {
+      if (!active) return;
+      setLoading(value);
+    };
+
+    const safeSetProfileFromUser = async (nextUser: User | null) => {
+      if (!active) return;
+      if (!nextUser) {
+        setProfile(null);
+        lastProfileUserIdRef.current = null;
+        return;
+      }
+
+      if (lastProfileUserIdRef.current === nextUser.id && profileCache.has(nextUser.id)) {
+        setProfile(profileCache.get(nextUser.id) ?? null);
+        return;
+      }
+
+      const nextProfile = await fetchProfile(nextUser.id);
+      if (!active) return;
+      setProfile(nextProfile);
+      lastProfileUserIdRef.current = nextUser.id;
+    };
+
+    const watchdog = setTimeout(() => {
+      safeSetLoading(false);
+    }, 8000);
+
     // Set up auth state listener FIRST
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        setSession(session);
-        setUser(session?.user || null);
+      (_event, nextSession) => {
+        if (!active) return;
+        setSession(nextSession);
+        setUser(nextSession?.user || null);
 
         // Defer profile fetch with setTimeout to avoid deadlock
-        if (session?.user) {
-          setTimeout(() => {
-            fetchProfile(session.user.id).then(setProfile);
-          }, 0);
-        } else {
-          setProfile(null);
-        }
+        setTimeout(() => {
+          safeSetProfileFromUser(nextSession?.user || null);
+        }, 0);
+
+        safeSetLoading(false);
       }
     );
 
     // THEN check for existing session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user || null);
-      
-      if (session?.user) {
-        fetchProfile(session.user.id).then(setProfile);
-      }
-      
-      setLoading(false);
-    });
+    const loadInitialSession = async () => {
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) {
+          console.error('Erro ao recuperar sessão:', error);
+          if (!active) return;
+          setSession(null);
+          setUser(null);
+          setProfile(null);
+          return;
+        }
 
-    return () => subscription.unsubscribe();
+        if (!active) return;
+        const nextSession = data.session;
+        setSession(nextSession);
+        setUser(nextSession?.user || null);
+        await safeSetProfileFromUser(nextSession?.user || null);
+      } catch (error) {
+        console.error('Falha ao inicializar autenticação:', error);
+        if (!active) return;
+        setSession(null);
+        setUser(null);
+        setProfile(null);
+      } finally {
+        safeSetLoading(false);
+      }
+    };
+
+    void loadInitialSession();
+
+    return () => {
+      active = false;
+      clearTimeout(watchdog);
+      subscription.unsubscribe();
+    };
   }, []);
 
   const signIn = async (email: string, password: string) => {

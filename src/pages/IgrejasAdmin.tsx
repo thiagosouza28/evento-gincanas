@@ -154,6 +154,10 @@ const IgrejasAdmin = () => {
     if (editing) {
       const { error } = await supabase.from('igrejas').update(payload).eq('id', editing.id);
       if (error) {
+        if (error.code === '23505') {
+          toast.error('CPF do Diretor Jovem ja esta vinculado a outra igreja');
+          return;
+        }
         toast.error('Erro ao atualizar igreja');
         return;
       }
@@ -161,6 +165,10 @@ const IgrejasAdmin = () => {
     } else {
       const { error } = await supabase.from('igrejas').insert(payload);
       if (error) {
+        if (error.code === '23505') {
+          toast.error('CPF do Diretor Jovem ja esta vinculado a outra igreja');
+          return;
+        }
         toast.error('Erro ao criar igreja');
         return;
       }
@@ -341,3 +349,4 @@ const IgrejasAdmin = () => {
 };
 
 export default IgrejasAdmin;
+

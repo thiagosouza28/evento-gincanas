@@ -390,17 +390,18 @@ export function AddInscritoForm({ onSuccess }: AddInscritoFormProps) {
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button variant="outline" className="gap-2">
+        <Button className="gap-2" size="sm">
           <UserPlus className="h-4 w-4" />
           Adicionar Inscrito
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
+          <p className="card-eyebrow">Cadastro</p>
           <DialogTitle>Adicionar Novo Inscrito</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
+          <div className="field">
             <Label htmlFor="nome">Nome Completo *</Label>
             <Input
               id="nome"
@@ -411,7 +412,7 @@ export function AddInscritoForm({ onSuccess }: AddInscritoFormProps) {
             />
           </div>
 
-          <div className="space-y-2">
+          <div className="field">
             <Label htmlFor="dataNascimento">Data de Nascimento *</Label>
             <Input
               id="dataNascimento"
@@ -422,7 +423,7 @@ export function AddInscritoForm({ onSuccess }: AddInscritoFormProps) {
             />
           </div>
 
-          <div className="space-y-2">
+          <div className="field">
             <Label htmlFor="igreja-select">Igreja</Label>
             <Select value={selectedIgrejaId} onValueChange={handleIgrejaChange}>
               <SelectTrigger id="igreja-select" disabled={loading || loadingIgrejas}>
@@ -441,8 +442,8 @@ export function AddInscritoForm({ onSuccess }: AddInscritoFormProps) {
           </div>
 
           {selectedIgrejaId === NEW_IGREJA_VALUE && (
-            <div className="space-y-4 rounded-md border border-border/60 p-3">
-              <div className="space-y-2">
+            <div className="space-y-4 rounded-[10px] border border-border bg-surface2/50 p-3">
+              <div className="field">
                 <Label htmlFor="nova-igreja">Nome da nova igreja *</Label>
                 <Input
                   id="nova-igreja"
@@ -452,7 +453,7 @@ export function AddInscritoForm({ onSuccess }: AddInscritoFormProps) {
                 />
               </div>
 
-              <div className="space-y-2">
+              <div className="field">
                 <Label>Distrito da nova igreja</Label>
                 <Select value={newIgrejaDistritoId} onValueChange={handleNewIgrejaDistritoChange}>
                   <SelectTrigger disabled={loading || loadingIgrejas}>
@@ -471,7 +472,7 @@ export function AddInscritoForm({ onSuccess }: AddInscritoFormProps) {
             </div>
           )}
 
-          <div className="space-y-2">
+          <div className="field">
             <Label htmlFor="distrito">Distrito</Label>
             <Input
               id="distrito"

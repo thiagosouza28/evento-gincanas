@@ -8,7 +8,7 @@ export interface Inscrito {
   igreja: string;
   distrito: string;
   fotoUrl?: string;
-  statusPagamento: 'PAID' | 'PENDING' | 'CANCELLED' | 'MANUAL';
+  statusPagamento: 'PAID' | 'CONFIRMED' | 'PENDING' | 'CANCELLED' | 'REFUNDED' | 'MANUAL';
   isManual?: boolean; // Inscrito adicionado manualmente
   numeroOriginal?: string; // Número original do banco de dados externo
   numeroPulseira?: string; // Numero da pulseira (igual ao numero da lista)
@@ -85,6 +85,8 @@ export interface EquipeComParticipantes extends Equipe {
   pontuacaoTotal: number;
 }
 
+export type FormaPagamentoEvento = 'pix' | 'manual';
+
 export interface Evento {
   id: string;
   nome: string;
@@ -92,6 +94,9 @@ export interface Evento {
   dataFim?: string | null;
   local?: string | null;
   slug?: string | null;
+  formasPagamento?: FormaPagamentoEvento[];
+  seguroValor?: number;
+  seguroObrigatorio?: boolean;
   ownerId?: string;
   status: 'ativo' | 'inativo';
   createdAt?: string;
@@ -138,7 +143,7 @@ export interface InscricaoEvento {
   eventoId: string;
   whatsapp?: string | null;
   total: number;
-  status: 'PENDING' | 'PAID' | 'CANCELLED';
+  status: 'PENDING' | 'PAID' | 'CONFIRMED' | 'CANCELLED';
   createdAt?: string;
   updatedAt?: string;
 }
@@ -165,7 +170,7 @@ export interface PagamentoEvento {
   integrationId?: string | null;
   provider: string;
   providerPaymentId: string;
-  status: 'PENDING' | 'PAID' | 'CANCELLED';
+  status: 'PENDING' | 'PAID' | 'CANCELLED' | 'REFUNDED';
   copiaecola?: string | null;
   qrcode?: string | null;
   expiresAt?: string | null;

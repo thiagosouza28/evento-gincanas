@@ -38,10 +38,10 @@ export function TorneioSorteioPopup({
   const confrontoAtual = confrontos.find(c => c.numero === numeroConfronto);
   const confrontoCompleto = confrontoAtual?.equipe1 && confrontoAtual?.equipe2;
   const getEquipeColor = (target?: Equipe | null) => {
-    if (!target) return 'hsl(var(--primary))';
+    if (!target) return 'rgb(var(--primary-rgb))';
     if (target.corPulseira) return target.corPulseira;
     if (typeof target.cor === 'number') return `hsl(var(--team-${target.cor}))`;
-    return 'hsl(var(--primary))';
+    return 'rgb(var(--primary-rgb))';
   };
   const equipeColor = getEquipeColor(equipe);
   const equipe1Color = getEquipeColor(confrontoAtual?.equipe1);
